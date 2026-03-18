@@ -61,5 +61,5 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew :library:check --info --stacktrace --scan -Dscan.termsOfServiceUrl="https://gradle.com/terms-of-service" -Dscan.termsOfServiceAgree=yes
 #        uses: gradle/gradle-build-action@ce999babab2de1c4b649dc15f0ee67e6246c994f
-        with:
-          arguments: ${{ matrix.target }}
+#        with:
+#          arguments: ${{ matrix.target }}
