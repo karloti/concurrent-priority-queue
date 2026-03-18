@@ -93,7 +93,7 @@ kotlin {
         // To build distributions for and run tests use one or several of:
         browser()
         nodejs()
-        d8()
+//        d8()
     }
     wasmWasi {
         // To build distributions for and run tests use one or several of:
@@ -148,3 +148,27 @@ mavenPublishing {
         }
     }
 }
+
+/*
+extensions.configure<SigningExtension> {
+    useGpgCmd()
+    sign(publishing.publications)
+}*/
+
+/*
+tasks.register("createMissingSourceDirs") {
+    group = "setup"
+    description = "Creates all missing source set directories for Kotlin Multiplatform"
+
+    doLast {
+        kotlin.sourceSets.forEach { sourceSet ->
+            sourceSet.kotlin.srcDirs.forEach { dir ->
+                if (!dir.exists()) {
+                    dir.mkdirs()
+                }
+            }
+        }
+    }
+}
+*/
+

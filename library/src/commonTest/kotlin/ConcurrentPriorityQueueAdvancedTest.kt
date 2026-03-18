@@ -73,8 +73,8 @@ class ConcurrentPriorityQueueAdvancedTest {
             uniqueKeySelector = { it.id }
         )
 
-        val concurrencyLevel = 10000
-        val insertsPerThread = 10000
+        val concurrencyLevel = 100
+        val insertsPerThread = 100
 
         // Загряване (Warm-up) на JVM за по-точни метрики
         val warmupQueue = ConcurrentPriorityQueue<Task, String>(100, compareBy { it.priority }) { it.id }

@@ -23,46 +23,66 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-// Обвивка (Wrapper), която форсира Reference Equality.
-// Това спестява милиони извиквания на .equals() вътре в StateFlow, правейки го мълниеносен.
+/**
+ * Wrapper that forces Reference Equality.
+ * This saves millions of .equals() calls inside StateFlow, making it extremely fast.
+ */
 private class PendingBuffer<T>(val items: PersistentList<T>)
 
+/**
+ * A concurrent priority queue implementation that is lock-free and non-blocking for producers.
+ * It uses a serialized consumer approach (using a spin-lock) to safely update the internal state.
+ *
+ * @param T The type of elements in the queue.
+ * @param K The type of the unique key used for deduplication.
+ * @property maxSize The maximum capacity of the queue. Defaults to 5.
+ * @property priorityComparator The comparator to determine the order of elements.
+ * @property uniqueKeySelector A function to extract a unique key from an element.
+ */
 class ConcurrentPriorityQueue<T, K>(
     private val maxSize: Int = 5,
     private val priorityComparator: Comparator<T>,
     private val uniqueKeySelector: (T) -> K
 ) {
-    // 1. Атомарен Lock-Free буфер
+    // 1. Atomic Lock-Free buffer
     private val pendingBuffer = MutableStateFlow(PendingBuffer<T>(persistentListOf()))
 
-    // 2. Атомарен Spin-Lock (Контролира кой обработва данните без да приспива нишки)
+    // 2. Atomic Spin-Lock (Controls who processes data without sleeping threads)
     private val isProcessing = MutableStateFlow(false)
 
-    // 3. Вътрешно състояние - експозирано за тестовете
+    // 3. Internal state - exposed for tests
     internal var persistentMap: PersistentMap<K, T> = persistentMapOf()
     private var persistentList: PersistentList<T> = persistentListOf()
 
     private val _items = MutableStateFlow<List<T>>(persistentListOf())
+    
+    /**
+     * A [StateFlow] exposing the current list of items in the queue, sorted by priority.
+     */
     val items: StateFlow<List<T>> = _items.asStateFlow()
 
     /**
-     * Напълно Lock-Free, Non-Blocking, истински асинхронна функция.
-     * Вече не е suspend! Можеш да я викаш отвсякъде мигновено.
+     * Adds an item to the queue.
+     * 
+     * This method is fully Lock-Free, Non-Blocking, and truly asynchronous.
+     * It can be called from any thread instantly without suspension.
+     *
+     * @param item The item to add.
      */
     fun add(item: T) {
         if (maxSize <= 0) return
 
-        // O(1) добавяне в транзитния буфер
+        // O(1) addition to the transit buffer
         pendingBuffer.update { PendingBuffer(it.items.add(item)) }
 
-        // Опитваме да източим и обработим буфера
+        // Try to drain and process the buffer
         drain()
     }
 
     private fun drain() {
         var keepDraining = true
         while (keepDraining) {
-            // Избираме "Лидер" (Processor). Само една нишка печели!
+            // Elect a "Leader" (Processor). Only one thread wins!
             if (isProcessing.compareAndSet(expect = false, update = true)) {
                 try {
                     while (true) {
@@ -74,16 +94,16 @@ class ConcurrentPriorityQueue<T, K>(
                     isProcessing.value = false
                 }
 
-                // Защита от Race Condition:
-                // Ако някой е добавил елемент точно докато сме отключвали,
-                // завъртаме цикъла отново, за да не го оставим висящ.
+                // Race Condition Protection:
+                // If someone added an element exactly while we were unlocking,
+                // we loop again to ensure we don't leave it hanging.
                 if (pendingBuffer.value.items.isEmpty()) {
                     keepDraining = false
                 }
             } else {
-                // Ако друга нишка вече е Лидер и обработва данните,
-                // нашата корутина просто ПРИКЛЮЧВА ВЕДНАГА (Fire-and-forget).
-                // Не чакаме, не блокираме процесора!
+                // If another thread is already the Leader and processing data,
+                // our coroutine simply FINISHES IMMEDIATELY (Fire-and-forget).
+                // We don't wait, we don't block the processor!
                 keepDraining = false
             }
         }
@@ -95,7 +115,7 @@ class ConcurrentPriorityQueue<T, K>(
             if (current.items.isEmpty()) return current.items
 
             val empty = PendingBuffer<T>(persistentListOf())
-            // Изпразваме буфера атомарно и вземаме списъка
+            // Atomically empty the buffer and take the list
             if (pendingBuffer.compareAndSet(current, empty)) {
                 return current.items
             }
@@ -146,23 +166,8 @@ class ConcurrentPriorityQueue<T, K>(
 
     companion object {
         /**
-         * Creates a [ConcurrentPriorityQueue] providing full control over the element type, sorting, and its unique key.
-         *
-         * @param maxSize The maximum capacity of the queue. Defaults to 5.
-         * @param priorityComparator Defines the sorting order of the elements.
-         * @param uniqueKeySelector A lambda function that extracts a unique identity key from an element [T].
-         */
-        operator fun <T, K> invoke(
-            maxSize: Int = 5,
-            priorityComparator: Comparator<T>,
-            uniqueKeySelector: (T) -> K
-        ): ConcurrentPriorityQueue<T, K> {
-            return ConcurrentPriorityQueue(maxSize, priorityComparator, uniqueKeySelector)
-        }
-
-        /**
          * Creates a [ConcurrentPriorityQueue] for [Comparable] types with a custom identity key.
-         * Uses a descending sorting order by default.
+         * Uses a descending sorting order by default (higher values have higher priority).
          *
          * @param maxSize The maximum capacity of the queue. Defaults to 5.
          * @param uniqueKeySelector A lambda function that extracts a unique identity key from an element [T].
