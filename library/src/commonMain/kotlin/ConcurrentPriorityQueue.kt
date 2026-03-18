@@ -18,127 +18,130 @@
 
 import kotlinx.collections.immutable.*
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
-import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
-/**
- * A lock-free, thread-safe bounded priority queue that maintains a sorted list of top elements
- * while guaranteeing uniqueness based on a specific identity key.
- *
- * It utilizes atomic Compare-And-Swap (CAS) operations via [MutableStateFlow] to maintain
- * high performance across multiple concurrent writers and readers without blocking threads.
- *
- * @param T The type of elements held in this queue.
- * @param K The type of the unique key used to identify elements and prevent duplicates.
- * @property maxSize The maximum number of elements the queue can hold.
- * @property priorityComparator Defines the sorting order of the elements. Elements that sort smaller
- * (i.e., appear earlier in the order) are considered to have a higher priority.
- * @property uniqueKeySelector A lambda function that extracts a unique identity key from an element [T].
- * If an element with an identical key is already present in the queue, the new element is ignored.
- */
+// Обвивка (Wrapper), която форсира Reference Equality.
+// Това спестява милиони извиквания на .equals() вътре в StateFlow, правейки го мълниеносен.
+private class PendingBuffer<T>(val items: PersistentList<T>)
+
 class ConcurrentPriorityQueue<T, K>(
     private val maxSize: Int = 5,
     private val priorityComparator: Comparator<T>,
-    private val uniqueKeySelector: (T) -> K,
+    private val uniqueKeySelector: (T) -> K
 ) {
+    // 1. Атомарен Lock-Free буфер
+    private val pendingBuffer = MutableStateFlow(PendingBuffer<T>(persistentListOf()))
+
+    // 2. Атомарен Spin-Lock (Контролира кой обработва данните без да приспива нишки)
+    private val isProcessing = MutableStateFlow(false)
+
+    // 3. Вътрешно състояние - експозирано за тестовете
+    internal var persistentMap: PersistentMap<K, T> = persistentMapOf()
+    private var persistentList: PersistentList<T> = persistentListOf()
+
+    private val _items = MutableStateFlow<List<T>>(persistentListOf())
+    val items: StateFlow<List<T>> = _items.asStateFlow()
+
     /**
-     * Represents the internal atomic state of the queue, keeping the sorted list
-     * and the set of unique keys perfectly synchronized.
+     * Напълно Lock-Free, Non-Blocking, истински асинхронна функция.
+     * Вече не е suspend! Можеш да я викаш отвсякъде мигновено.
      */
-    internal data class QueueState<T, K>(
-        val items: PersistentList<T> = persistentListOf(),
-        val persistentMap: PersistentMap<K, T> = persistentMapOf()
-    )
+    fun add(item: T) {
+        if (maxSize <= 0) return
 
-    internal val _state = MutableStateFlow(QueueState<T, K>())
+        // O(1) добавяне в транзитния буфер
+        pendingBuffer.update { PendingBuffer(it.items.add(item)) }
 
-    private val writeMutex = Mutex()
+        // Опитваме да източим и обработим буфера
+        drain()
+    }
 
-    /**
-     * A highly optimized, read-only [StateFlow] exposing the current top elements.
-     * It strictly guarantees immutability for downstream consumers (e.g., UI components)
-     * preventing accidental modifications or the need for defensive copying.
-     */
-    val items: StateFlow<ImmutableList<T>> = object : StateFlow<ImmutableList<T>> {
-        override val replayCache: List<ImmutableList<T>> get() = listOf(_state.value.items)
-        override val value: ImmutableList<T> get() = _state.value.items
-        override suspend fun collect(collector: FlowCollector<ImmutableList<T>>): Nothing {
-            _state.collect { collector.emit(it.items) }
+    private fun drain() {
+        var keepDraining = true
+        while (keepDraining) {
+            // Избираме "Лидер" (Processor). Само една нишка печели!
+            if (isProcessing.compareAndSet(expect = false, update = true)) {
+                try {
+                    while (true) {
+                        val batch = extractBatch()
+                        if (batch.isEmpty()) break
+                        processBatch(batch)
+                    }
+                } finally {
+                    isProcessing.value = false
+                }
+
+                // Защита от Race Condition:
+                // Ако някой е добавил елемент точно докато сме отключвали,
+                // завъртаме цикъла отново, за да не го оставим висящ.
+                if (pendingBuffer.value.items.isEmpty()) {
+                    keepDraining = false
+                }
+            } else {
+                // Ако друга нишка вече е Лидер и обработва данните,
+                // нашата корутина просто ПРИКЛЮЧВА ВЕДНАГА (Fire-and-forget).
+                // Не чакаме, не блокираме процесора!
+                keepDraining = false
+            }
         }
     }
 
-    /**
-     * Attempts to add a new item to the bounded priority queue concurrently.
-     *
-     * The insertion process follows these rules:
-     * 1. If an item with the same unique key already exists, the new item is discarded.
-     * 2. If the queue is at maximum capacity and the new item has a lower or equal priority
-     * compared to the lowest-priority item currently in the queue, it is discarded.
-     * 3. If the item qualifies, it is inserted at the correct sorted position. If this insertion
-     * exceeds the [maxSize], the lowest-priority item is evicted, and its unique key is freed.
-     *
-     * @param item The element to be evaluated and potentially added to the queue.
-     */
-    suspend fun add(item: T) {
-        if (maxSize <= 0) return
-        val itemKey = uniqueKeySelector(item)
+    private fun extractBatch(): PersistentList<T> {
+        while (true) {
+            val current = pendingBuffer.value
+            if (current.items.isEmpty()) return current.items
 
-        // Използваме Mutex вместо _state.update
-        writeMutex.withLock {
-            val currentState = _state.value
-            val existingItem = currentState.persistentMap[itemKey]
-
-            // Fast path 1
-            if (existingItem != null && priorityComparator.compare(item, existingItem) >= 0) return
-
-            val last = currentState.items.lastOrNull()
-            val compare = last?.let { priorityComparator.compare(item, last) }
-
-            // Fast path 2
-            if (currentState.items.size >= maxSize && compare != null && compare >= 0) {
-                if (existingItem == null) return
+            val empty = PendingBuffer<T>(persistentListOf())
+            // Изпразваме буфера атомарно и вземаме списъка
+            if (pendingBuffer.compareAndSet(current, empty)) {
+                return current.items
             }
-
-            var evictedItem: T? = null
-
-            // Persistent мутациите - сега те ще се изпълнят точно ВЕДНЪЖ за всеки елемент,
-            // без никакви CAS повторения и излишни алокации!
-            val newItems = currentState.items.mutate { mutableList ->
-                if (existingItem != null) {
-                    mutableList.remove(existingItem)
-                }
-
-                val searchResult = mutableList.binarySearch(item, priorityComparator)
-                var insertIndex = if (searchResult < 0) -(searchResult + 1) else searchResult
-
-                while (insertIndex < mutableList.size && priorityComparator.compare(
-                        mutableList[insertIndex],
-                        item
-                    ) == 0
-                ) {
-                    insertIndex++
-                }
-
-                mutableList.add(insertIndex, item)
-
-                if (mutableList.size > maxSize) {
-                    evictedItem = mutableList.removeLast()
-                }
-            }
-
-            val newPersistentMap = currentState.persistentMap.mutate { mutableMap ->
-                mutableMap[itemKey] = item
-                evictedItem?.let { evicted ->
-                    mutableMap.remove(uniqueKeySelector(evicted))
-                }
-            }
-
-            // Записваме новото състояние (Readers продължават да четат без блокиране!)
-            _state.value = QueueState(newItems, newPersistentMap)
         }
+    }
+
+    private fun processBatch(batch: PersistentList<T>) {
+        persistentMap = persistentMap.mutate { mutableMap ->
+            persistentList = persistentList.mutate { mutableList ->
+
+                for (item in batch) {
+                    val itemKey = uniqueKeySelector(item)
+                    val existingItem = mutableMap[itemKey]
+
+                    if (existingItem != null && priorityComparator.compare(item, existingItem) >= 0) continue
+                    if (mutableList.size >= maxSize && existingItem == null) {
+                        val last = mutableList.lastOrNull()
+                        if (last != null && priorityComparator.compare(item, last) >= 0) continue
+                    }
+
+                    if (existingItem != null) {
+                        mutableList.remove(existingItem)
+                    }
+
+                    val searchResult = mutableList.binarySearch(item, priorityComparator)
+                    var insertIndex = if (searchResult < 0) -(searchResult + 1) else searchResult
+
+                    while (insertIndex < mutableList.size && priorityComparator.compare(
+                            mutableList[insertIndex],
+                            item
+                        ) == 0
+                    ) {
+                        insertIndex++
+                    }
+
+                    mutableList.add(insertIndex, item)
+                    mutableMap[itemKey] = item
+
+                    if (mutableList.size > maxSize) {
+                        val evictedItem = mutableList.removeLast()
+                        mutableMap.remove(uniqueKeySelector(evictedItem))
+                    }
+                }
+            }
+        }
+        _items.value = persistentList
     }
 
     companion object {

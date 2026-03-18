@@ -14,9 +14,13 @@
  * limitations under the License.
  */
 
+@file:OptIn(ExperimentalCoroutinesApi::class)
+
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -37,7 +41,7 @@ class ConcurrentPriorityQueueAdvancedTest {
         val queue = ConcurrentPriorityQueue<Task, String>(
             maxSize = 5,
             priorityComparator = compareByDescending { it.priority },
-            uniqueKeySelector = { it.id }
+            uniqueKeySelector = { it.id },
         )
 
         // Добавяме два различни елемента с ЕДНАКЪВ приоритет
@@ -70,8 +74,8 @@ class ConcurrentPriorityQueueAdvancedTest {
             uniqueKeySelector = { it.id }
         )
 
-        val concurrencyLevel = 100
-        val insertsPerThread = 500
+        val concurrencyLevel = 10000
+        val insertsPerThread = 10000
 
         // Загряване (Warm-up) на JVM за по-точни метрики
         val warmupQueue = ConcurrentPriorityQueue<Task, String>(100, compareBy { it.priority }) { it.id }
@@ -239,9 +243,9 @@ class ConcurrentPriorityQueueAdvancedTest {
         queue.add(Task("C", 5))
 
         // Взимаме директен достъп до вътрешното състояние
-        val state = queue._state.value
-        val list = state.items
-        val map = state.persistentMap
+        val state = queue.items.value
+        val list = state
+        val map = queue.persistentMap
 
         println("Състояние на списъка: $list")
         println("Състояние на Map-а: $map")
