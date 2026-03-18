@@ -21,7 +21,8 @@ import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * A lock-free, thread-safe bounded priority queue that maintains a sorted list of top elements
@@ -54,6 +55,8 @@ class ConcurrentPriorityQueue<T, K>(
 
     internal val _state = MutableStateFlow(QueueState<T, K>())
 
+    private val writeMutex = Mutex()
+
     /**
      * A highly optimized, read-only [StateFlow] exposing the current top elements.
      * It strictly guarantees immutability for downstream consumers (e.g., UI components)
@@ -79,55 +82,53 @@ class ConcurrentPriorityQueue<T, K>(
      *
      * @param item The element to be evaluated and potentially added to the queue.
      */
-    fun add(item: T) {
+    suspend fun add(item: T) {
         if (maxSize <= 0) return
         val itemKey = uniqueKeySelector(item)
 
-        _state.update { currentState ->
+        // Използваме Mutex вместо _state.update
+        writeMutex.withLock {
+            val currentState = _state.value
             val existingItem = currentState.persistentMap[itemKey]
 
-            // Fast path 1: Ако новият елемент е с ПО-ЛОШ или РАВЕН приоритет, игнорираме
-            existingItem?.let {
-                if (priorityComparator.compare(item, existingItem) >= 0) return@update currentState
-            }
+            // Fast path 1
+            if (existingItem != null && priorityComparator.compare(item, existingItem) >= 0) return
 
             val last = currentState.items.lastOrNull()
             val compare = last?.let { priorityComparator.compare(item, last) }
 
-            // Fast path 2: Ако опашката е пълна и елементът е по-лош или равен на последния
-            if (currentState.items.size >= maxSize && compare != null && compare >= 0) return@update currentState
+            // Fast path 2
+            if (currentState.items.size >= maxSize && compare != null && compare >= 0) {
+                if (existingItem == null) return
+            }
 
             var evictedItem: T? = null
 
-            // Мутираме списъка
+            // Persistent мутациите - сега те ще се изпълнят точно ВЕДНЪЖ за всеки елемент,
+            // без никакви CAS повторения и излишни алокации!
             val newItems = currentState.items.mutate { mutableList ->
-                // FIX 1: Безопасно изтриване на стария елемент!
-                // Тъй като вече имаме точната инстанция (existingItem) от Map-а,
-                // използваме директно .remove(), което сравнява по .equals() или референция,
-                // вместо да разчитаме на подвеждащия binarySearch по приоритет.
                 if (existingItem != null) {
                     mutableList.remove(existingItem)
                 }
 
-                // FIX 2: Търсене на индекс за вмъкване + Стабилно сортиране
                 val searchResult = mutableList.binarySearch(item, priorityComparator)
                 var insertIndex = if (searchResult < 0) -(searchResult + 1) else searchResult
 
-                // Ако има други елементи със същия приоритет, превъртаме индекса след тях.
-                // Това гарантира, че новият елемент няма да бъде вмъкнат "между" тях.
-                while (insertIndex < mutableList.size && priorityComparator.compare(mutableList[insertIndex], item) == 0) {
+                while (insertIndex < mutableList.size && priorityComparator.compare(
+                        mutableList[insertIndex],
+                        item
+                    ) == 0
+                ) {
                     insertIndex++
                 }
 
                 mutableList.add(insertIndex, item)
 
-                // Твоята перфектна логика за орязване
                 if (mutableList.size > maxSize) {
                     evictedItem = mutableList.removeLast()
                 }
             }
 
-            // Мутираме Map-а и синхронизираме
             val newPersistentMap = currentState.persistentMap.mutate { mutableMap ->
                 mutableMap[itemKey] = item
                 evictedItem?.let { evicted ->
@@ -135,7 +136,8 @@ class ConcurrentPriorityQueue<T, K>(
                 }
             }
 
-            QueueState(newItems, newPersistentMap)
+            // Записваме новото състояние (Readers продължават да четат без блокиране!)
+            _state.value = QueueState(newItems, newPersistentMap)
         }
     }
 

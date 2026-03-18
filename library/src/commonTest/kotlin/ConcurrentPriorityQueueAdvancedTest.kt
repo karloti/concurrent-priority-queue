@@ -33,7 +33,7 @@ class ConcurrentPriorityQueueAdvancedTest {
      * Ако два елемента имат еднакъв приоритет, ъпдейтът на единия може да изтрие другия.
      */
     @Test
-    fun `test state corruption on equal priority updates`() {
+    fun `test state corruption on equal priority updates`() = runTest {
         val queue = ConcurrentPriorityQueue<Task, String>(
             maxSize = 5,
             priorityComparator = compareByDescending { it.priority },
@@ -113,7 +113,7 @@ class ConcurrentPriorityQueueAdvancedTest {
      * ТЕСТ 3: Добавяне на елементи в напълно обратен ред (Worst-case scenario за вмъкване).
      */
     @Test
-    fun `test worst case sequential insertions`() {
+    fun `test worst case sequential insertions`() = runTest {
         val queue = ConcurrentPriorityQueue<Task, String>(
             maxSize = 100,
             priorityComparator = compareBy { it.priority }, // Най-малкото е с най-висок приоритет
@@ -219,6 +219,7 @@ class ConcurrentPriorityQueueAdvancedTest {
             "КРИТИЧЕН БЪГ: 'A' се дублира в списъка (старото A(50) не е изтрито)!"
         )
     }
+
     @Test
     fun `test memory leak and desynchronization when exceeding maxSize`() = runTest {
         // Инициализираме опашка с много малък капацитет (maxSize = 2)

@@ -47,7 +47,7 @@ class ConcurrentPriorityQueueTest {
      * the queue ignores the new element and preserves the existing one.
      */
     @Test
-    fun `test duplicate keys are correctly ignored`() {
+    fun `test duplicate keys are correctly ignored`() = runTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 3,
             priorityComparator = compareByDescending { it.score },
@@ -84,7 +84,7 @@ class ConcurrentPriorityQueueTest {
      * with the exact same key to re-enter the queue if its priority is high enough.
      */
     @Test
-    fun `test evicted key can re-enter the queue`() {
+    fun `test evicted key can re-enter the queue`() = runTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 2,
             priorityComparator = compareBy { it.score },
@@ -145,7 +145,7 @@ class ConcurrentPriorityQueueTest {
      * to a descending sort order while using the elements themselves as identity keys.
      */
     @Test
-    fun `test factory default for Comparable types uses reverse order and self key`() {
+    fun `test factory default for Comparable types uses reverse order and self key`() = runTest {
         val queue = ConcurrentPriorityQueue.Companion<Int>()
 
         queue.add(10)
@@ -166,7 +166,7 @@ class ConcurrentPriorityQueueTest {
      * still utilizing the elements themselves as identity keys.
      */
     @Test
-    fun `test factory with custom comparator and self key uses provided order`() {
+    fun `test factory with custom comparator and self key uses provided order`() = runTest {
         val queue = ConcurrentPriorityQueue.Companion<Int>(
             maxSize = 3,
             priorityComparator = naturalOrder()
@@ -188,7 +188,7 @@ class ConcurrentPriorityQueueTest {
      * key selector. Ensures the descending default order is correctly combined with the key logic.
      */
     @Test
-    fun `test factory for Comparable with custom key selector uses reverse order`() {
+    fun `test factory for Comparable with custom key selector uses reverse order`() = runTest {
         val queue = ConcurrentPriorityQueue.Companion<ComparableItem, Int>(
             maxSize = 3,
             uniqueKeySelector = { it.id }
@@ -210,7 +210,7 @@ class ConcurrentPriorityQueueTest {
      * capacity when omitted, while utilizing the provided comparator and key selector.
      */
     @Test
-    fun `test factory with full control applies default max size`() {
+    fun `test factory with full control applies default max size`() = runTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             priorityComparator = compareBy { it.score },
             uniqueKeySelector = { it.id }
