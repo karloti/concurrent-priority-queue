@@ -113,9 +113,10 @@ fun TopScoresList(queue: ConcurrentPriorityQueue<Score, String>) {
 | **macOS** | `macosX64`, `macosArm64` |
 | **Linux** | `linuxX64`, `linuxArm64` |
 | **Windows** | `mingwX64` |
-| **watchOS** | All targets |
-| **tvOS** | All targets |
+| **watchOS** | `watchosArm32`, `watchosArm64`, `watchosDeviceArm64`, `watchosX64`, `watchosSimulatorArm64` |
+| **tvOS** | `tvosX64`, `tvosArm64`, `tvosSimulatorArm64` |
 | **Web** | `js`, `wasmJs`, `wasmWasi` |
+| **Android Native** | `androidNativeArm32`, `androidNativeArm64`, `androidNativeX86`, `androidNativeX64` |
 
 
 ## Tracking & Roadmap
