@@ -5,7 +5,9 @@ A high-performance, lock-free, asynchronous **Concurrent Priority Queue** for Ko
 Designed for heavy concurrent environments, this library provides a bounded, thread-safe priority queue that allows thousands of coroutines to add items simultaneously without blocking, while a serialized consumer efficiently manages the internal state.
 
 ![Badge: Kotlin Multiplatform](https://img.shields.io/badge/Kotlin-Multiplatform-7f52ff?logo=kotlin)
-![Badge: License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
+[![GitHub license](https://img.shields.io/github/license/kotlin/kotlinx.collections.immutable)](LICENSE)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.karloti/concurrent-priority-queue.svg?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.karloti/concurrent-priority-queue)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.3.10-orange.svg?logo=kotlin)](http://kotlinlang.org)
 
 ## Features
 
@@ -115,6 +117,13 @@ fun TopScoresList(queue: ConcurrentPriorityQueue<Score, String>) {
 | **tvOS** | All targets |
 | **Web** | `js`, `wasmJs`, `wasmWasi` |
 
+
+## Tracking & Roadmap
+
+We use YouTrack for task management and issue tracking.
+You can view the current tasks and progress here:
+[Typeahead KMP Issues & Roadmap](https://smartcoding.youtrack.cloud/projects/CPQ)
+
 ## License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
+This project is licensed under the **Apache License Version 2.0** - see the [LICENSE](LICENSE) file for details.
