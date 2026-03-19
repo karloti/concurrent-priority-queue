@@ -24,7 +24,7 @@ plugins {
     alias(libs.plugins.vanniktech.mavenPublish)
 }
 group = "io.github.karloti"
-version = "1.0.0"
+version = "1.0.1"
 
 kotlin {
     // JVM
@@ -120,7 +120,7 @@ mavenPublishing {
 
     signAllPublications()
 
-    coordinates(group.toString(), "library", version.toString())
+    coordinates(group.toString(), "concurrent-priority-queue", version.toString())
 
     pom {
         name = "Concurrent Priority Queue"
