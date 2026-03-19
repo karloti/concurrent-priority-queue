@@ -24,7 +24,7 @@ Add the dependency to your `build.gradle.kts`:
 
 ```kotlin
 commonMain.dependencies {
-    implementation("io.github.karloti:concurrent-priority-queue:1.0.2") // <- Get the latest version
+    implementation("io.github.karloti:concurrent-priority-queue:1.0.3") // <- Get the latest version
 }
 ```
 

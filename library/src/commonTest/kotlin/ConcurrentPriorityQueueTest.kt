@@ -62,10 +62,8 @@ class ConcurrentPriorityQueueTest {
         queue.add(SearchResultItem(id = 5, score = 5))
 
 
-        val result = queue.items
+        val result = queue.items.value
         result.forEach { println("Result: $it") }
-
-        queue.items.forEach { println("Result: $it") }
 
         assertEquals(3, result.size)
         assertEquals(20, result[0].score)
@@ -96,7 +94,7 @@ class ConcurrentPriorityQueueTest {
         queue.add(SearchResultItem(id = 3, score = 30))
         queue.add(SearchResultItem(id = 1, score = 20))
 
-        val result = queue.items
+        val result = queue.items.value
         assertEquals(2, result.size)
         assertEquals(1, result[0].id)
         assertEquals(3, result[1].id)
@@ -127,7 +125,7 @@ class ConcurrentPriorityQueueTest {
 
         jobs.joinAll()
 
-        val result = queue.items
+        val result = queue.items.value
 
         assertEquals(10, result.size)
 
@@ -156,7 +154,7 @@ class ConcurrentPriorityQueueTest {
         queue.add(60)
         queue.add(60)
 
-        val result = queue.items
+        val result = queue.items.value
         assertEquals(5, result.size)
         assertEquals(listOf(60, 50, 40, 30, 20), result)
     }
@@ -178,7 +176,7 @@ class ConcurrentPriorityQueueTest {
         queue.add(1)
         queue.add(2)
 
-        val result = queue.items
+        val result = queue.items.value
         assertEquals(3, result.size)
         assertEquals(listOf(1, 2, 5), result)
     }
@@ -200,7 +198,7 @@ class ConcurrentPriorityQueueTest {
         queue.add(ComparableItem(id = 4, score = 20))
         queue.add(ComparableItem(id = 2, score = 100))
 
-        val result = queue.items
+        val result = queue.items.value
         assertEquals(3, result.size)
         assertEquals(listOf(100, 30, 20), result.map { it.score })
     }
@@ -218,7 +216,7 @@ class ConcurrentPriorityQueueTest {
 
         (1..6).forEach { queue.add(SearchResultItem(id = it, score = it * 10)) }
 
-        val result = queue.items
+        val result = queue.items.value
         assertEquals(5, result.size)
         assertEquals(listOf(1, 2, 3, 4, 5), result.map { it.id })
     }

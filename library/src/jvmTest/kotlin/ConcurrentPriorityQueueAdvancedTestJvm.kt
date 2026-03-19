@@ -104,7 +104,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
 
         println("Java SkipList Execution Time (Unique Keys): $skipListDuration")
 
-        val finalCustomItems = customPriorityQueue.items
+        val finalCustomItems = customPriorityQueue.items.value
 
         // Extract the correctly bounded expected result AFTER all concurrent operations finish
         val finalSkipListItems = javaSkipListSet.take(maxQueueCapacity)
@@ -162,7 +162,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
 
         println("Custom Queue Execution Time (Duplicate Keys): $customQueueDuration")
 
-        val finalItems = customPriorityQueue.items
+        val finalItems = customPriorityQueue.items.value
         println("Custom Queue Final Size (Expected <= $uniqueIdsPoolSize): ${finalItems.size}")
 
         // Validations

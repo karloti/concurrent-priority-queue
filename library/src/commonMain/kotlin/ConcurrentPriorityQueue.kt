@@ -21,7 +21,10 @@ import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
 /**
@@ -55,7 +58,14 @@ class ConcurrentPriorityQueue<T, K>(
     /**
      * Returns a thread-safe, immutable view of the current items in the queue.
      */
-    val items: List<T> get() = queueState.value.elements
+    val items: StateFlow<List<T>> = object : StateFlow<List<T>> {
+        override val replayCache: List<List<T>> get() = listOf(value)
+        override val value: List<T> get() = queueState.value.elements
+        override suspend fun collect(collector: FlowCollector<List<T>>): Nothing {
+            queueState.map { it.elements }.collect(collector)
+            error("StateFlow collection should never end")
+        }
+    }
 
     /**
      * Attempts to add an element to the queue.

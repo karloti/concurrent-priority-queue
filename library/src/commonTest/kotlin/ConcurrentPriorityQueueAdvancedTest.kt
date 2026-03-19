@@ -50,7 +50,7 @@ class ConcurrentPriorityQueueAdvancedTest {
         // Сега ъпдейтваме приоритета на "B", така че да стане по-висок
         queue.add(Task("B", 20))
 
-        val items = queue.items
+        val items = queue.items.value
 
         // Очакваме и "A", и "B" да са в списъка.
         // Ако има бъг, "A" ще е изчезнал, защото binarySearch е намерил и изтрил него вместо старото "B".
@@ -94,22 +94,23 @@ class ConcurrentPriorityQueueAdvancedTest {
             jobs.joinAll()
         }
 
-        val resultSize = queue.items.size
+        val currentItems = queue.items.value
+        val resultSize = currentItems.size
         println("Изпълнени ${concurrencyLevel * insertsPerThread} конкурентни операции.")
         println("Време за изпълнение: $executionTime")
         println("Крайни елементи в опашката: $resultSize")
 
         // Валидация
         assertTrue(resultSize <= largeCapacity)
-        val isSorted = queue.items.zipWithNext { a, b -> a.priority <= b.priority }.all { it }
+        val isSorted = currentItems.zipWithNext { a, b -> a.priority <= b.priority }.all { it }
         assertTrue(isSorted, "Опашката не е правилно сортирана след масовите операции!")
 
         // Проверка за консистентност (Map vs List)
         // Тъй като Map не е публичен, проверяваме индиректно:
         // Ако опитаме да добавим същите елементи с по-слаб приоритет, размерът не трябва да се променя.
-        val snapshot = queue.items
+        val snapshot = currentItems
         snapshot.take(10).forEach { queue.add(it.copy(priority = it.priority + 1000)) }
-        assertEquals(snapshot, queue.items, "Десинхронизация между вътрешния Map и List!")
+        assertEquals(snapshot, currentItems, "Десинхронизация между вътрешния Map и List!")
     }
 
     /**
@@ -141,8 +142,8 @@ class ConcurrentPriorityQueueAdvancedTest {
 
         println("Време за Best-case вмъкване: $timeFast")
         println("Време за Worst-case вмъкване: $timeSlow")
-        assertEquals(100, queueReversed.items.size)
-        assertEquals(1, queueReversed.items.first().priority)
+        assertEquals(100, queueReversed.items.value.size)
+        assertEquals(1, queueReversed.items.value.first().priority)
     }
 
     @Test
@@ -165,7 +166,7 @@ class ConcurrentPriorityQueueAdvancedTest {
         // Логиката би трябвало да премахне A(50) и да добави A(100).
         queue.add(Task("A", 100))
 
-        val items = queue.items
+        val items = queue.items.value
         val idsInList = items.map { it.id }
 
         println("Текущо състояние на списъка след ъпдейта: $items")
@@ -202,7 +203,7 @@ class ConcurrentPriorityQueueAdvancedTest {
         // Това прескача бързата проверка и форсира премахването на стария елемент.
         queue.add(Task("A", 10))
 
-        val items = queue.items
+        val items = queue.items.value
         val idsInList = items.map { it.id }
 
         println("Текущо състояние: $items")
@@ -242,7 +243,7 @@ class ConcurrentPriorityQueueAdvancedTest {
         queue.add(Task("C", 5))
 
         // Взимаме директен достъп до вътрешното състояние
-        val state = queue.items
+        val state = queue.items.value
         val map = queue.queueState.value.elementsByKey
 
         println("Състояние на списъка: $state")
