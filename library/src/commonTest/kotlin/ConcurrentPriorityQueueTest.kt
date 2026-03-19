@@ -50,7 +50,7 @@ class ConcurrentPriorityQueueTest {
     fun `test duplicate keys are correctly ignored`() = runTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 3,
-            priorityComparator = compareByDescending { it.score },
+            comparator = compareByDescending { it.score },
             uniqueKeySelector = { it.id }
         )
 
@@ -62,10 +62,10 @@ class ConcurrentPriorityQueueTest {
         queue.add(SearchResultItem(id = 5, score = 5))
 
 
-        val result = queue.items.value
+        val result = queue.items
         result.forEach { println("Result: $it") }
 
-        queue.items.value.forEach { println("Result: $it") }
+        queue.items.forEach { println("Result: $it") }
 
         assertEquals(3, result.size)
         assertEquals(20, result[0].score)
@@ -87,7 +87,7 @@ class ConcurrentPriorityQueueTest {
     fun `test evicted key can re-enter the queue`() = runTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 2,
-            priorityComparator = compareBy { it.score },
+            comparator = compareBy { it.score },
             uniqueKeySelector = { it.id }
         )
 
@@ -96,7 +96,7 @@ class ConcurrentPriorityQueueTest {
         queue.add(SearchResultItem(id = 3, score = 30))
         queue.add(SearchResultItem(id = 1, score = 20))
 
-        val result = queue.items.value
+        val result = queue.items
         assertEquals(2, result.size)
         assertEquals(1, result[0].id)
         assertEquals(3, result[1].id)
@@ -111,7 +111,7 @@ class ConcurrentPriorityQueueTest {
     fun `test massive concurrent additions with heavy key collisions`() = runTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 10,
-            priorityComparator = compareBy { it.score },
+            comparator = compareBy { it.score },
             uniqueKeySelector = { it.id }
         )
 
@@ -127,7 +127,7 @@ class ConcurrentPriorityQueueTest {
 
         jobs.joinAll()
 
-        val result = queue.items.value
+        val result = queue.items
 
         assertEquals(10, result.size)
 
@@ -146,7 +146,7 @@ class ConcurrentPriorityQueueTest {
      */
     @Test
     fun `test factory default for Comparable types uses reverse order and self key`() = runTest {
-        val queue = ConcurrentPriorityQueue.Companion<Int>()
+        val queue = ConcurrentPriorityQueue<Int>()
 
         queue.add(10)
         queue.add(50)
@@ -156,7 +156,7 @@ class ConcurrentPriorityQueueTest {
         queue.add(60)
         queue.add(60)
 
-        val result = queue.items.value
+        val result = queue.items
         assertEquals(5, result.size)
         assertEquals(listOf(60, 50, 40, 30, 20), result)
     }
@@ -178,7 +178,7 @@ class ConcurrentPriorityQueueTest {
         queue.add(1)
         queue.add(2)
 
-        val result = queue.items.value
+        val result = queue.items
         assertEquals(3, result.size)
         assertEquals(listOf(1, 2, 5), result)
     }
@@ -200,7 +200,7 @@ class ConcurrentPriorityQueueTest {
         queue.add(ComparableItem(id = 4, score = 20))
         queue.add(ComparableItem(id = 2, score = 100))
 
-        val result = queue.items.value
+        val result = queue.items
         assertEquals(3, result.size)
         assertEquals(listOf(100, 30, 20), result.map { it.score })
     }
@@ -212,13 +212,13 @@ class ConcurrentPriorityQueueTest {
     @Test
     fun `test factory with full control applies default max size`() = runTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
-            priorityComparator = compareBy { it.score },
+            comparator = compareBy { it.score },
             uniqueKeySelector = { it.id }
         )
 
         (1..6).forEach { queue.add(SearchResultItem(id = it, score = it * 10)) }
 
-        val result = queue.items.value
+        val result = queue.items
         assertEquals(5, result.size)
         assertEquals(listOf(1, 2, 3, 4, 5), result.map { it.id })
     }

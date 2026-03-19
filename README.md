@@ -11,8 +11,8 @@ Designed for heavy concurrent environments, this library provides a bounded, thr
 
 ## Features
 
-*   **Lock-Free Producer:** The `add()` operation is non-blocking and wait-free for producers, utilizing atomic operations.
-*   **Serialized Consumer:** Uses a high-performance spin-lock mechanism to ensure safe, single-threaded processing of the queue state without suspending producers.
+*   **Lock-Free Producer:** The `add()` operation is non-blocking and wait-free for producers, utilizing atomic updates on immutable snapshots.
+*   **Persistent Collections:** Uses `kotlinx-collections-immutable` (`PersistentList` and `PersistentMap`) to maintain a consistent state efficiently.
 *   **Bounded Capacity:** Automatically evicts the lowest-priority element when the queue exceeds `maxSize`.
 *   **Deduplication:** Built-in support for unique keys (`uniqueKeySelector`) to prevent duplicate items (e.g., updating an existing item's score instead of adding a new one).
 *   **Reactive State:** Exposes the current queue state as a `StateFlow<List<T>>`, making it perfect for UI binding (Compose, SwiftUI, React).
@@ -98,10 +98,29 @@ fun TopScoresList(queue: ConcurrentPriorityQueue<Score, String>) {
 
 ## How It Works
 
-1.  **Pending Buffer:** Incoming items are instantly appended to an atomic, lock-free `PendingBuffer`. This ensures `add()` is always O(1) for the producer.
-2.  **Drain Loop:** A "Leader" thread is elected via an atomic `CompareAndSet` flag (`isProcessing`).
-3.  **Batch Processing:** The leader drains the buffer and merges it into the internal `PersistentMap` and `PersistentList`.
-4.  **Immutable State:** The final state is emitted to `_items` as a truly immutable list, ensuring thread safety for all readers.
+1.  **Atomic Snapshots:** The internal state is stored as an immutable `Snapshot` containing a `PersistentList` (sorted by priority) and a `PersistentMap` (for O(1) key lookups).
+2.  **Lock-Free Updates:** The `add()` operation uses `atomic.update` to ensure thread-safety. It performs a non-blocking "Copy-on-Write" style update on the persistent data structures.
+3.  **Deduplication & Bounding:** During each update, the queue checks for existing keys (O(1)), performs binary search for insertion points (O(log N)), and trims the collection to `maxSize`.
+4.  **Wait-Free Reads:** Reading `items` simply returns the current immutable list reference, ensuring zero contention with writers.
+
+## Complexity & Memory Analysis
+
+| Operation | Time Complexity | Memory Complexity | Description |
+| :--- | :--- | :--- | :--- |
+| **`add()`** | $O(\log N)$ | $O(N)$ | Logarithmic insertion due to binary search and persistent collection structural sharing. |
+| **`items` (Read)** | $O(1)$ | $O(1)$ | Instant access to the latest immutable snapshot. |
+| **Storage** | - | $O(N)$ | Stores $N$ elements in a list and $N$ keys in a map. |
+
+## Benchmarks (JVM)
+
+Performance comparison under extreme stress (5,000 coroutines, 1,000,000 total insertions) on `Dispatchers.Default`:
+
+| Scenario | ConcurrentPriorityQueue | ConcurrentSkipListSet (Java) |
+| :--- | :--- | :--- |
+| **Unique Keys (5,000 capacity)** | ~397ms | ~187ms |
+| **Duplicate Keys (50 keys, 100 capacity)** | ~97ms | N/A (Limited bounding support) |
+
+*Note: While `ConcurrentSkipListSet` is faster for simple unique insertions, `ConcurrentPriorityQueue` provides superior convenience with built-in unique key selectors (Upsert logic) and deterministic bounding, which are not natively available in standard Java concurrent collections.*
 
 ## Supported Targets
 

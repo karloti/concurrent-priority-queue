@@ -51,15 +51,5 @@ jobs:
       - name: Validate Gradle Wrapper
         uses: gradle/actions/wrapper-validation@v4
 
-
-#      - uses: actions/cache@v4
-#        with:
-#          path: |
-#            ~/.konan
-#          key: ${{ runner.os }}-${{ hashFiles('**/.lock') }}
-
       - name: Build with Gradle
         run: ./gradlew build
-#        uses: gradle/gradle-build-action@ce999babab2de1c4b649dc15f0ee67e6246c994f
-#        with:
-#          arguments: ${{ matrix.target }}

@@ -16,10 +16,13 @@
 
 @file:OptIn(ExperimentalForInheritanceCoroutinesApi::class)
 
-import kotlinx.atomicfu.atomic
-import kotlinx.atomicfu.update
-import kotlinx.collections.immutable.*
+import kotlinx.collections.immutable.PersistentList
+import kotlinx.collections.immutable.PersistentMap
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * A concurrent, lock-free priority queue implementation.
@@ -47,7 +50,7 @@ class ConcurrentPriorityQueue<T, K>(
         val elementsByKey: PersistentMap<K, T>,
     )
 
-    internal val queueState = atomic(Snapshot<T, K>(persistentListOf(), persistentMapOf()))
+    internal val queueState = MutableStateFlow<Snapshot<T, K>>(Snapshot(persistentListOf(), persistentMapOf()))
 
     /**
      * Returns a thread-safe, immutable view of the current items in the queue.

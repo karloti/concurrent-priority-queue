@@ -39,7 +39,7 @@ class ConcurrentPriorityQueueAdvancedTest {
     fun `test state corruption on equal priority updates`() = runTest {
         val queue = ConcurrentPriorityQueue<Task, String>(
             maxSize = 5,
-            priorityComparator = compareByDescending { it.priority },
+            comparator = compareByDescending { it.priority },
             uniqueKeySelector = { it.id },
         )
 
@@ -50,7 +50,7 @@ class ConcurrentPriorityQueueAdvancedTest {
         // Сега ъпдейтваме приоритета на "B", така че да стане по-висок
         queue.add(Task("B", 20))
 
-        val items = queue.items.value
+        val items = queue.items
 
         // Очакваме и "A", и "B" да са в списъка.
         // Ако има бъг, "A" ще е изчезнал, защото binarySearch е намерил и изтрил него вместо старото "B".
@@ -69,7 +69,7 @@ class ConcurrentPriorityQueueAdvancedTest {
         val largeCapacity = 10_000
         val queue = ConcurrentPriorityQueue<Task, String>(
             maxSize = largeCapacity,
-            priorityComparator = compareBy { it.priority },
+            comparator = compareBy { it.priority },
             uniqueKeySelector = { it.id }
         )
 
@@ -94,22 +94,22 @@ class ConcurrentPriorityQueueAdvancedTest {
             jobs.joinAll()
         }
 
-        val resultSize = queue.items.value.size
+        val resultSize = queue.items.size
         println("Изпълнени ${concurrencyLevel * insertsPerThread} конкурентни операции.")
         println("Време за изпълнение: $executionTime")
         println("Крайни елементи в опашката: $resultSize")
 
         // Валидация
         assertTrue(resultSize <= largeCapacity)
-        val isSorted = queue.items.value.zipWithNext { a, b -> a.priority <= b.priority }.all { it }
+        val isSorted = queue.items.zipWithNext { a, b -> a.priority <= b.priority }.all { it }
         assertTrue(isSorted, "Опашката не е правилно сортирана след масовите операции!")
 
         // Проверка за консистентност (Map vs List)
         // Тъй като Map не е публичен, проверяваме индиректно:
         // Ако опитаме да добавим същите елементи с по-слаб приоритет, размерът не трябва да се променя.
-        val snapshot = queue.items.value
+        val snapshot = queue.items
         snapshot.take(10).forEach { queue.add(it.copy(priority = it.priority + 1000)) }
-        assertEquals(snapshot, queue.items.value, "Десинхронизация между вътрешния Map и List!")
+        assertEquals(snapshot, queue.items, "Десинхронизация между вътрешния Map и List!")
     }
 
     /**
@@ -119,7 +119,7 @@ class ConcurrentPriorityQueueAdvancedTest {
     fun `test worst case sequential insertions`() = runTest {
         val queue = ConcurrentPriorityQueue<Task, String>(
             maxSize = 100,
-            priorityComparator = compareBy { it.priority }, // Най-малкото е с най-висок приоритет
+            comparator = compareBy { it.priority }, // Най-малкото е с най-висок приоритет
             uniqueKeySelector = { it.id }
         )
 
@@ -130,7 +130,7 @@ class ConcurrentPriorityQueueAdvancedTest {
 
         val queueReversed = ConcurrentPriorityQueue<Task, String>(
             maxSize = 100,
-            priorityComparator = compareBy { it.priority },
+            comparator = compareBy { it.priority },
             uniqueKeySelector = { it.id }
         )
 
@@ -141,15 +141,15 @@ class ConcurrentPriorityQueueAdvancedTest {
 
         println("Време за Best-case вмъкване: $timeFast")
         println("Време за Worst-case вмъкване: $timeSlow")
-        assertEquals(100, queueReversed.items.value.size)
-        assertEquals(1, queueReversed.items.value.first().priority)
+        assertEquals(100, queueReversed.items.size)
+        assertEquals(1, queueReversed.items.first().priority)
     }
 
     @Test
     fun `test DETERMINISTIC corruption on equal priority updates`() = runTest {
         val queue = ConcurrentPriorityQueue<Task, String>(
             maxSize = 10,
-            priorityComparator = compareBy { it.priority }, // По-малкото число е с по-висок приоритет
+            comparator = compareBy { it.priority }, // По-малкото число е с по-висок приоритет
             uniqueKeySelector = { it.id }
         )
 
@@ -165,7 +165,7 @@ class ConcurrentPriorityQueueAdvancedTest {
         // Логиката би трябвало да премахне A(50) и да добави A(100).
         queue.add(Task("A", 100))
 
-        val items = queue.items.value
+        val items = queue.items
         val idsInList = items.map { it.id }
 
         println("Текущо състояние на списъка след ъпдейта: $items")
@@ -189,7 +189,7 @@ class ConcurrentPriorityQueueAdvancedTest {
     fun `test DETERMINISTIC corruption on BETTER priority update`() = runTest {
         val queue = ConcurrentPriorityQueue<Task, String>(
             maxSize = 10,
-            priorityComparator = compareBy { it.priority },
+            comparator = compareBy { it.priority },
             uniqueKeySelector = { it.id }
         )
 
@@ -202,7 +202,7 @@ class ConcurrentPriorityQueueAdvancedTest {
         // Това прескача бързата проверка и форсира премахването на стария елемент.
         queue.add(Task("A", 10))
 
-        val items = queue.items.value
+        val items = queue.items
         val idsInList = items.map { it.id }
 
         println("Текущо състояние: $items")
@@ -228,7 +228,7 @@ class ConcurrentPriorityQueueAdvancedTest {
         // Инициализираме опашка с много малък капацитет (maxSize = 2)
         val queue = ConcurrentPriorityQueue<Task, String>(
             maxSize = 2,
-            priorityComparator = compareBy { it.priority }, // По-малкото число е по-добър приоритет
+            comparator = compareBy { it.priority }, // По-малкото число е по-добър приоритет
             uniqueKeySelector = { it.id }
         )
 
@@ -242,18 +242,17 @@ class ConcurrentPriorityQueueAdvancedTest {
         queue.add(Task("C", 5))
 
         // Взимаме директен достъп до вътрешното състояние
-        val state = queue.items.value
-        val list = state
-        val map = queue.persistentMap
+        val state = queue.items
+        val map = queue.queueState.value.elementsByKey
 
-        println("Състояние на списъка: $list")
+        println("Състояние на списъка: $state")
         println("Състояние на Map-а: $map")
 
         // 3. Проверяваме списъка (Това ще мине успешно)
-        assertEquals(2, list.size, "Списъкът трябва да съдържа точно 2 елемента.")
-        assertTrue(list.none { it.id == "B" }, "Елемент 'B' трябва да е изтрит от списъка.")
-        assertEquals("C", list[0].id)
-        assertEquals("A", list[1].id)
+        assertEquals(2, state.size, "Списъкът трябва да съдържа точно 2 елемента.")
+        assertTrue(state.none { it.id == "B" }, "Елемент 'B' трябва да е изтрит от списъка.")
+        assertEquals("C", state[0].id)
+        assertEquals("A", state[1].id)
 
         // 4. Проверяваме Map-а - ТУК ТЕСТЪТ ЩЕ СЕ ПРОВАЛИ заради Memory Leak-а
         assertNull(
@@ -264,7 +263,7 @@ class ConcurrentPriorityQueueAdvancedTest {
         assertEquals(
             2,
             map.size,
-            "КРИТИЧЕН БЪГ: Размерът на Map-а (${map.size}) е по-голям от размера на списъка (${list.size})!"
+            "КРИТИЧЕН БЪГ: Размерът на Map-а (${map.size}) е по-голям от размера на списъка (${state.size})!"
         )
     }
 }
