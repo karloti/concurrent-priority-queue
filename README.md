@@ -22,7 +22,7 @@ Add the dependency to your `build.gradle.kts`:
 
 ```kotlin
 commonMain.dependencies {
-    implementation("io.github.karloti:concurrent-priority-queue:1.0.0")
+    implementation("io.github.karloti:concurrent-priority-queue:1.0.1")
 }
 ```
 
