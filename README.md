@@ -24,7 +24,7 @@ Built on a persistent **Treap** data structure with `MutableStateFlow` for threa
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("io.github.karloti:concurrent-priority-queue:1.0.3")
+    implementation("io.github.karloti:concurrent-priority-queue:1.1.0")
 }
 ```
 
