@@ -24,9 +24,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Test suite for [io.github.karloti.ConcurrentPriorityQueue].
- * * Verifies the correctness of concurrent element additions, strict capacity bounding,
- * proper priority sorting, and the atomicity of the unique key deduplication mechanisms.
+ * Test suite for [ConcurrentPriorityQueue].
+ * Verifies correctness of concurrent element additions, strict capacity bounding,
+ * proper priority sorting, and atomicity of unique key deduplication mechanisms.
  */
 class ConcurrentPriorityQueueTest {
 

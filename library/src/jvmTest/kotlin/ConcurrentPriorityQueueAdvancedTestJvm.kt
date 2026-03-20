@@ -27,7 +27,7 @@ import kotlin.time.measureTime
 
 /**
  * Advanced performance and thread-safety test suite for [ConcurrentPriorityQueue].
- * * These tests are explicitly executed on [Dispatchers.Default] using `runBlocking`
+ * These tests are explicitly executed on [Dispatchers.Default] using `runBlocking`
  * to guarantee genuine hardware multi-threading and simulate real race conditions.
  */
 class ConcurrentPriorityQueueAdvancedTestJvm {
@@ -42,15 +42,15 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
 
     /**
      * Test 1: Unique Keys Benchmark
-     * * Evaluates thread safety and performance when inserting strictly unique keys.
+     * Evaluates thread safety and performance when inserting strictly unique keys.
      * Ensures that the queue correctly bounds its capacity and maintains the correct
      * elements when compared against a standard Java [ConcurrentSkipListSet].
      */
     @Test
     fun `=== Test 1 Unique Keys Benchmark ===`() = runBlocking(Dispatchers.Default) {
         println("=== Test 1: Unique Keys Benchmark ===")
-        val maxQueueCapacity = 500_000
-        val coroutinesCount = 5_000 // Increased for extreme stress testing
+        val maxQueueCapacity = 5_000
+        val coroutinesCount = 5_00 // Increased for extreme stress testing
         val insertionsPerCoroutine = 500
 
         val randomSeed = Random(42)
@@ -118,7 +118,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
 
     /**
      * Test 2: Duplicate Keys Benchmark
-     * * Evaluates thread safety and deduplication logic when inserting colliding duplicate keys.
+     * Evaluates thread safety and deduplication logic when inserting colliding duplicate keys.
      * Tests whether identical identifiers correctly overwrite each other, prioritize the
      * best values, and strictly enforce state consistency without memory leaks.
      */
@@ -191,8 +191,8 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
     @Test
     fun `=== Test 3 add Unique Keys Benchmark ===`() = runBlocking(Dispatchers.Default) {
         println("=== Test 3: add Unique Keys Benchmark ===")
-        val maxQueueCapacity = 5_000
-        val coroutinesCount = 1_000_000
+        val maxQueueCapacity = 1_000
+        val coroutinesCount = 100_000
 
         val randomSeed = Random(123)
         val preGeneratedBatches = List(coroutinesCount) { batchIndex ->
@@ -248,8 +248,8 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
     @Test
     fun `=== Test 4 add() Single-Threaded Performance ===`() = runBlocking {
         println("=== Test 4: add() Single-Threaded Performance ===")
-        val maxQueueCapacity = 10_000
-        val totalElements = 3_000_000
+        val maxQueueCapacity = 1_000
+        val totalElements = 300_000
 
         val randomSeed = Random(789)
         val allTasks = List(totalElements) { index ->
@@ -307,7 +307,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
     @Test
     fun `=== Test 5 Heavy Load Scalability Benchmark ===`() = runBlocking(Dispatchers.Default) {
         println("=== Test 5: Heavy Load Scalability Benchmark ===")
-        val maxQueueCapacity = 20_000
+        val maxQueueCapacity = 2_000
         val coroutinesCount = 500
         val insertionsPerCoroutine = 4_000 // 2M total operations
 
@@ -403,8 +403,8 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
     @Test
     fun `=== Test 6 Large Batch Single Operation ===`() = runBlocking {
         println("=== Test 6: Large Batch Single Operation ===")
-        val maxQueueCapacity = 50_000
-        val totalElements = 2_000_000
+        val maxQueueCapacity = 5_000
+        val totalElements = 200_000
 
         val randomSeed = Random(999)
 

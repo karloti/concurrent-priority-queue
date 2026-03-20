@@ -16,87 +16,159 @@
 
 @file:OptIn(ExperimentalForInheritanceCoroutinesApi::class, ExperimentalCoroutinesApi::class)
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asFlow
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.chunked
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.job
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
- * A concurrent, lock-free priority queue implementation.
- * * It uses a serialized consumer approach via an atomic reference (spin-lock)
- * to safely and asynchronously update its internal state without blocking producers.
+ * A concurrent, lock-free, bounded priority queue for Kotlin Multiplatform.
  *
- * Uses a persistent treap internally for O(log n) insert/remove operations
- * without the O(n) index update overhead of list-based approaches.
+ * This queue is backed by a persistent [Treap](https://en.wikipedia.org/wiki/Treap) data structure
+ * combined with [MutableStateFlow] for thread-safe atomic updates using CAS (Compare-And-Swap).
+ *
+ * ## Key Features
+ *
+ * - **Lock-free concurrency**: Uses `MutableStateFlow.update()` with optimistic CAS for non-blocking updates
+ * - **Persistent data structure**: Structural sharing enables efficient copy-on-write semantics
+ * - **Bounded capacity**: Automatically evicts lowest-priority elements when [maxSize] is exceeded
+ * - **Built-in deduplication**: Elements with the same key are automatically deduplicated (upsert behavior)
+ * - **Reactive state**: Exposes [items] as `StateFlow<List<T>>` for seamless UI binding
+ * - **O(log n) operations**: Insert, remove, and access operations are logarithmic
+ * - **O(1) key lookup**: Fast element retrieval by key via internal hash map
+ *
+ * ## Thread Safety
+ *
+ * All public methods are thread-safe and can be called concurrently from multiple coroutines
+ * or threads. The queue uses optimistic locking - concurrent modifications may cause retries
+ * but never block.
+ *
+ * ## Example Usage
+ *
+ * ```kotlin
+ * data class Task(val id: String, val priority: Int)
+ *
+ * val queue = ConcurrentPriorityQueue<Task, String>(
+ *     maxSize = 10,
+ *     comparator = compareBy { it.priority },  // Lower = higher priority
+ *     uniqueKeySelector = { it.id }
+ * )
+ *
+ * queue.add(Task("A", 5))
+ * queue.add(Task("B", 1))
+ * queue.add(Task("A", 3))  // Updates "A" with better priority
+ *
+ * println(queue.first())  // Task(id=B, priority=1)
+ * ```
  *
  * @param T The type of elements held in the queue.
- * @param K The type of the unique identity key for the elements.
- * @property maxSize The maximum allowed capacity of the queue. Defaults to 5.
- * @property comparator The comparator used to determine the priority order of elements.
- * @property uniqueKeySelector A selector function to extract a unique identity key from an element.
+ * @param K The type of the unique identity key for deduplication.
+ * @property maxSize Maximum queue capacity. Elements beyond this are evicted. Must be > 0.
+ * @property comparator Defines priority order. First element in sorted order has highest priority.
+ * @property uniqueKeySelector Extracts unique identity key from an element for deduplication.
+ *
+ * @see PersistentIndexedPriorityList The underlying persistent treap implementation
+ * @see StateFlow For reactive state observation
  */
 class ConcurrentPriorityQueue<T, K>(
     private val maxSize: Int = 5,
     private val comparator: Comparator<T>,
     private val uniqueKeySelector: (T) -> K
 ) {
+    /**
+     * Internal state holder using [MutableStateFlow] for atomic CAS updates.
+     * The state is a persistent (immutable) treap that supports structural sharing.
+     */
     internal val queueState = MutableStateFlow(
         PersistentIndexedPriorityList.empty(comparator, uniqueKeySelector)
     )
 
     /**
-     * Returns a thread-safe, immutable view of the current items in the queue.
+     * A reactive [StateFlow] containing the current queue elements as an immutable sorted list.
+     *
+     * The list is sorted according to the [comparator] - the first element has the highest priority.
+     * Each access returns a snapshot that is safe to iterate without synchronization.
+     *
+     * ## Usage with Jetpack Compose
+     *
+     * ```kotlin
+     * @Composable
+     * fun LeaderboardScreen(queue: ConcurrentPriorityQueue<Score, String>) {
+     *     val scores by queue.items.collectAsState()
+     *     LazyColumn {
+     *         items(scores) { score -> ScoreRow(score) }
+     *     }
+     * }
+     * ```
+     *
+     * @return A [StateFlow] that emits the current list whenever the queue changes.
      */
     val items: StateFlow<List<T>> = object : StateFlow<List<T>> {
         override val replayCache: List<List<T>> get() = listOf(value)
         override val value: List<T> get() = queueState.value.toList()
         override suspend fun collect(collector: FlowCollector<List<T>>): Nothing {
-            queueState.map { it.toList() }.collect(collector)
-            error("StateFlow collection should never end")
+            queueState.collect { collector.emit(it.toList()) }
         }
     }
 
     /**
+     * The current number of elements in the queue.
+     *
+     * This is an O(1) operation that returns a snapshot of the size at the moment of access.
+     *
+     * @return The number of elements currently in the queue (0 to [maxSize]).
+     */
+    val size: Int get() = queueState.value.size
+
+    /**
      * Attempts to add an element to the queue.
      *
-     * This method is fully lock-free, non-blocking, and truly asynchronous.
-     * It efficiently handles deduplication by replacing existing elements if the new element
-     * has a strictly better priority, and discards elements that fall outside the [maxSize] bounds.
+     * This method is lock-free and uses optimistic CAS updates. It implements "upsert" semantics:
      *
-     * All operations are O(log n) thanks to the underlying treap structure.
+     * - If the key doesn't exist and queue has space: element is added
+     * - If the key doesn't exist but queue is full: element replaces lowest priority if better
+     * - If the key exists with worse priority: element replaces existing
+     * - If the key exists with equal or better priority: element is rejected
      *
-     * @param element The item to evaluate and potentially add to the queue.
+     * ## Complexity
+     *
+     * - **Time**: O(log n) for treap insert/remove operations
+     * - **Space**: O(log n) new nodes due to structural sharing
+     *
+     * ## Example
+     *
+     * ```kotlin
+     * val queue = ConcurrentPriorityQueue<Int>(maxSize = 3)
+     * queue.add(10)  // true - added
+     * queue.add(20)  // true - added
+     * queue.add(5)   // true - added
+     * queue.add(1)   // false - rejected (worse than all, queue full)
+     * queue.add(15)  // true - added, evicts 5
+     * ```
+     *
+     * @param element The element to add to the queue.
+     * @return `true` if the element was added or updated, `false` if rejected.
      */
-    fun add(element: T) {
-        if (maxSize <= 0) return
+    fun add(element: T): Boolean {
+        if (maxSize <= 0) return false
+
+        val key = uniqueKeySelector(element)
+        var added = false
 
         queueState.update { currentState ->
-            val elementKey = uniqueKeySelector(element)
-
             // Fast-path: Queue is completely empty
             if (currentState.isEmpty()) {
+                added = true
                 return@update currentState.insert(element)
             }
 
-            val existingElement = currentState[elementKey]
+            val existingElement = currentState[key]
 
             // Fast-path: Element exists but has equal or better priority already
             if (existingElement != null && comparator.compare(element, existingElement) >= 0) {
+                added = false
                 return@update currentState
             }
 
@@ -104,6 +176,7 @@ class ConcurrentPriorityQueue<T, K>(
             if (currentState.size >= maxSize && existingElement == null) {
                 val lowestPriorityElement = currentState.last()
                 if (lowestPriorityElement != null && comparator.compare(element, lowestPriorityElement) >= 0) {
+                    added = false
                     return@update currentState
                 }
             }
@@ -116,20 +189,293 @@ class ConcurrentPriorityQueue<T, K>(
                 updated = updated.removeLast()
             }
 
+            added = true
             updated
+        }
+
+        return added
+    }
+
+    /**
+     * Checks if the queue contains an element with the specified key.
+     *
+     * This is an O(1) operation using the internal hash map.
+     *
+     * @param key The unique key to search for.
+     * @return `true` if an element with this key exists, `false` otherwise.
+     */
+    fun containsKey(key: K): Boolean = queueState.value.containsKey(key)
+
+    /**
+     * Checks if the queue contains the specified element.
+     *
+     * Lookup is performed by extracting the key using [uniqueKeySelector].
+     * This is an O(1) operation.
+     *
+     * @param element The element to search for.
+     * @return `true` if the element exists in the queue, `false` otherwise.
+     */
+    fun contains(element: T): Boolean = containsKey(uniqueKeySelector(element))
+
+    /**
+     * Retrieves an element by its unique key.
+     *
+     * This is an O(1) operation using the internal hash map.
+     *
+     * ## Example
+     *
+     * ```kotlin
+     * val queue = ConcurrentPriorityQueue<Task, String>(...) { it.id }
+     * queue.add(Task("task-1", 10))
+     * val task = queue["task-1"]  // Task(id=task-1, priority=10)
+     * ```
+     *
+     * @param key The unique key of the element to retrieve.
+     * @return The element if found, or `null` if no element with this key exists.
+     */
+    operator fun get(key: K): T? = queueState.value[key]
+
+    /**
+     * Returns the highest priority element without removing it.
+     *
+     * The "highest priority" element is the first element according to the [comparator].
+     * This is an O(log n) operation (traverses to leftmost node in treap).
+     *
+     * @return The highest priority element, or `null` if the queue is empty.
+     */
+    fun first(): T? = queueState.value.first()
+
+    /**
+     * Returns the lowest priority element without removing it.
+     *
+     * The "lowest priority" element is the last element according to the [comparator].
+     * This is an O(log n) operation (traverses to rightmost node in treap).
+     *
+     * @return The lowest priority element, or `null` if the queue is empty.
+     */
+    fun last(): T? = queueState.value.last()
+
+    /**
+     * Removes and returns the highest priority element.
+     *
+     * This is equivalent to `first()` followed by `removeByKey()`.
+     * The operation is O(log n) and thread-safe.
+     *
+     * ## Example
+     *
+     * ```kotlin
+     * val queue = ConcurrentPriorityQueue<Int>(maxSize = 5)
+     * queue.add(10)
+     * queue.add(20)
+     * val top = queue.poll()  // 20 (if descending order)
+     * ```
+     *
+     * @return The removed highest priority element, or `null` if the queue is empty.
+     */
+    fun poll(): T? {
+        var result: T? = null
+        queueState.update { currentState ->
+            val first = currentState.first()
+            if (first == null) {
+                result = null
+                return@update currentState
+            }
+            result = first
+            currentState.removeByKey(uniqueKeySelector(first))
+        }
+        return result
+    }
+
+    /**
+     * Removes an element by its unique key.
+     *
+     * This is an O(log n) operation and thread-safe.
+     *
+     * @param key The unique key of the element to remove.
+     * @return `true` if an element was removed, `false` if no element with this key existed.
+     */
+    fun removeByKey(key: K): Boolean {
+        var removed = false
+        queueState.update { currentState ->
+            if (!currentState.containsKey(key)) {
+                removed = false
+                return@update currentState
+            }
+            removed = true
+            currentState.removeByKey(key)
+        }
+        return removed
+    }
+
+    /**
+     * Removes a specific element from the queue.
+     *
+     * The element is identified by its key (extracted via [uniqueKeySelector]).
+     * This is an O(log n) operation.
+     *
+     * @param element The element to remove.
+     * @return `true` if the element was removed, `false` if it didn't exist.
+     */
+    fun remove(element: T): Boolean = removeByKey(uniqueKeySelector(element))
+
+    /**
+     * Removes all elements that match the given predicate.
+     *
+     * This operation is atomic - either all matching elements are removed or none
+     * (in case of concurrent modification, the operation retries).
+     *
+     * ## Complexity
+     *
+     * - **Time**: O(k × log n) where k is the number of elements matching the predicate
+     *
+     * ## Example
+     *
+     * ```kotlin
+     * val queue = ConcurrentPriorityQueue<Task, String>(...) { it.id }
+     * queue.add(Task("a", 10))
+     * queue.add(Task("b", 20))
+     * queue.add(Task("c", 5))
+     *
+     * // Remove all tasks with priority > 10
+     * val removed = queue.removeIf { it.priority > 10 }  // 1
+     * ```
+     *
+     * @param predicate A function that returns `true` for elements to be removed.
+     * @return The number of elements removed.
+     */
+    fun removeIf(predicate: (T) -> Boolean): Int {
+        var removedCount = 0
+        queueState.update { currentState ->
+            val toRemove = currentState.filter(predicate)
+            removedCount = toRemove.size
+            if (toRemove.isEmpty()) {
+                return@update currentState
+            }
+            currentState.removeAll(toRemove)
+        }
+        return removedCount
+    }
+
+    /**
+     * Retains only the elements that match the given predicate, removing all others.
+     *
+     * This is the opposite of [removeIf] - elements for which the predicate returns `false`
+     * are removed.
+     *
+     * ## Example
+     *
+     * ```kotlin
+     * val queue = ConcurrentPriorityQueue<Task, String>(...) { it.id }
+     * // ... add tasks ...
+     *
+     * // Keep only high-priority tasks
+     * queue.retainIf { it.priority <= 10 }
+     * ```
+     *
+     * @param predicate A function that returns `true` for elements to keep.
+     * @return The number of elements removed.
+     */
+    fun retainIf(predicate: (T) -> Boolean): Int {
+        return removeIf { !predicate(it) }
+    }
+
+    /**
+     * Removes all elements from the queue, leaving it empty.
+     *
+     * This operation is atomic and O(1).
+     *
+     * ## Example
+     *
+     * ```kotlin
+     * queue.clear()
+     * assert(queue.isEmpty())
+     * assert(queue.size == 0)
+     * ```
+     */
+    fun clear() {
+        queueState.update { currentState ->
+            currentState.clear()
         }
     }
 
+    /**
+     * Checks if the queue contains no elements.
+     *
+     * This is an O(1) operation.
+     *
+     * @return `true` if the queue is empty, `false` otherwise.
+     */
+    fun isEmpty(): Boolean = queueState.value.isEmpty()
+
+    /**
+     * Checks if the queue contains at least one element.
+     *
+     * This is an O(1) operation, equivalent to `!isEmpty()`.
+     *
+     * @return `true` if the queue has elements, `false` if empty.
+     */
+    fun isNotEmpty(): Boolean = !isEmpty()
+
+    /**
+     * Adds all elements from the given collection to the queue.
+     *
+     * Elements are added one by one, following the same rules as [add]:
+     * - Duplicate keys are handled via upsert semantics
+     * - Lowest priority elements are evicted if capacity is exceeded
+     *
+     * ## Complexity
+     *
+     * - **Time**: O(m × log n) where m is the number of elements to add
+     *
+     * @param elements The collection of elements to add.
+     * @return The number of elements actually added (excluding rejects and updates).
+     */
+    fun addAll(elements: Collection<T>): Int {
+        var addedCount = 0
+        for (element in elements) {
+            if (add(element)) {
+                addedCount++
+            }
+        }
+        return addedCount
+    }
+
+    /**
+     * Returns an iterator over the elements in priority order (highest first).
+     *
+     * The iterator operates on a snapshot of the queue at the time of creation.
+     * Modifications to the queue after iterator creation are not reflected.
+     *
+     * @return An iterator over the queue elements.
+     */
+    operator fun iterator(): Iterator<T> = items.value.iterator()
+
     companion object {
-        /** Default parallelism for async operations */
+        /**
+         * Default parallelism hint for async operations.
+         */
         const val DEFAULT_PARALLELISM = 4
 
         /**
-         * Creates a [ConcurrentPriorityQueue] for [Comparable] types with a custom identity key.
-         * By default, it uses a descending sorting order (higher values imply higher priority).
+         * Creates a queue for [Comparable] types with a custom identity key.
          *
-         * @param maxSize The maximum capacity of the queue. Defaults to 5.
-         * @param uniqueKeySelector A lambda function that extracts a unique identity key from an element [T].
+         * Uses **descending order** by default (higher values = higher priority).
+         *
+         * ## Example
+         *
+         * ```kotlin
+         * data class Score(val odId: String, val points: Int) : Comparable<Score> {
+         *     override fun compareTo(other: Score) = points.compareTo(other.points)
+         * }
+         *
+         * val leaderboard = ConcurrentPriorityQueue<Score, String>(maxSize = 10) { it.odId }
+         * ```
+         *
+         * @param T Element type (must implement [Comparable]).
+         * @param K Key type for deduplication.
+         * @param maxSize Maximum queue capacity. Defaults to 5.
+         * @param uniqueKeySelector Function to extract unique key from element.
+         * @return A new [ConcurrentPriorityQueue] instance.
          */
         operator fun <T : Comparable<T>, K> invoke(
             maxSize: Int = 5,
@@ -139,10 +485,24 @@ class ConcurrentPriorityQueue<T, K>(
         }
 
         /**
-         * Creates a [ConcurrentPriorityQueue] where the elements themselves act as their own unique identity keys.
+         * Creates a queue with a custom comparator where elements are their own keys.
          *
-         * @param maxSize The maximum capacity of the queue. Defaults to 5.
-         * @param priorityComparator Defines the sorting order of the elements.
+         * Use this when elements don't need separate identity keys (no duplicates by value).
+         *
+         * ## Example
+         *
+         * ```kotlin
+         * // Min-heap of integers (smallest first)
+         * val minHeap = ConcurrentPriorityQueue<Int>(maxSize = 10, compareBy { it })
+         *
+         * // Max-heap of strings by length
+         * val byLength = ConcurrentPriorityQueue<String>(maxSize = 5, compareByDescending { it.length })
+         * ```
+         *
+         * @param T Element type (also used as key type).
+         * @param maxSize Maximum queue capacity. Defaults to 5.
+         * @param priorityComparator Comparator defining priority order.
+         * @return A new [ConcurrentPriorityQueue] instance.
          */
         operator fun <T> invoke(
             maxSize: Int = 5,
@@ -152,10 +512,24 @@ class ConcurrentPriorityQueue<T, K>(
         }
 
         /**
-         * Creates a [ConcurrentPriorityQueue] for [Comparable] types where the elements themselves act as their own unique identity keys.
-         * By default, it uses a descending sorting order.
+         * Creates a queue for [Comparable] types where elements are their own keys.
          *
-         * @param maxSize The maximum capacity of the queue. Defaults to 5.
+         * Uses **descending order** by default (higher values = higher priority).
+         *
+         * ## Example
+         *
+         * ```kotlin
+         * // Top 5 highest integers
+         * val top5 = ConcurrentPriorityQueue<Int>(maxSize = 5)
+         * top5.add(10)
+         * top5.add(50)
+         * top5.add(30)
+         * println(top5.items.value)  // [50, 30, 10]
+         * ```
+         *
+         * @param T Element type (must implement [Comparable], also used as key type).
+         * @param maxSize Maximum queue capacity. Defaults to 5.
+         * @return A new [ConcurrentPriorityQueue] instance.
          */
         operator fun <T : Comparable<T>> invoke(
             maxSize: Int = 5
