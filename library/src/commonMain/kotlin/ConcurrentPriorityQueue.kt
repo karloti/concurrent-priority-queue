@@ -16,11 +16,11 @@
 
 @file:OptIn(ExperimentalForInheritanceCoroutinesApi::class)
 
-import kotlinx.collections.immutable.PersistentList
-import kotlinx.collections.immutable.PersistentMap
-import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +31,9 @@ import kotlinx.coroutines.flow.update
  * A concurrent, lock-free priority queue implementation.
  * * It uses a serialized consumer approach via an atomic reference (spin-lock)
  * to safely and asynchronously update its internal state without blocking producers.
+ *
+ * Uses a persistent treap internally for O(log n) insert/remove operations
+ * without the O(n) index update overhead of list-based approaches.
  *
  * @param T The type of elements held in the queue.
  * @param K The type of the unique identity key for the elements.
@@ -43,26 +46,18 @@ class ConcurrentPriorityQueue<T, K>(
     private val comparator: Comparator<T>,
     private val uniqueKeySelector: (T) -> K
 ) {
-    /**
-     * Holds the immutable snapshot of the queue's state at any given time.
-     * * @property elements The sorted list of elements based on priority.
-     * @property elementsByKey A map for O(1) lookups of existing elements by their unique keys.
-     */
-    internal class Snapshot<T, K>(
-        val elements: PersistentList<T>,
-        val elementsByKey: PersistentMap<K, T>,
+    internal val queueState = MutableStateFlow(
+        PersistentIndexedPriorityList.empty(comparator, uniqueKeySelector)
     )
-
-    internal val queueState = MutableStateFlow<Snapshot<T, K>>(Snapshot(persistentListOf(), persistentMapOf()))
 
     /**
      * Returns a thread-safe, immutable view of the current items in the queue.
      */
     val items: StateFlow<List<T>> = object : StateFlow<List<T>> {
         override val replayCache: List<List<T>> get() = listOf(value)
-        override val value: List<T> get() = queueState.value.elements
+        override val value: List<T> get() = queueState.value.toList()
         override suspend fun collect(collector: FlowCollector<List<T>>): Nothing {
-            queueState.map { it.elements }.collect(collector)
+            queueState.map { it.toList() }.collect(collector)
             error("StateFlow collection should never end")
         }
     }
@@ -74,6 +69,8 @@ class ConcurrentPriorityQueue<T, K>(
      * It efficiently handles deduplication by replacing existing elements if the new element
      * has a strictly better priority, and discards elements that fall outside the [maxSize] bounds.
      *
+     * All operations are O(log n) thanks to the underlying treap structure.
+     *
      * @param element The item to evaluate and potentially add to the queue.
      */
     fun add(element: T) {
@@ -83,17 +80,11 @@ class ConcurrentPriorityQueue<T, K>(
             val elementKey = uniqueKeySelector(element)
 
             // Fast-path: Queue is completely empty
-            if (currentState.elements.isEmpty()) {
-                return@update Snapshot(
-                    elements = persistentListOf(element),
-                    elementsByKey = persistentMapOf(elementKey to element)
-                )
+            if (currentState.isEmpty()) {
+                return@update currentState.insert(element)
             }
 
-            var updatedElements = currentState.elements
-            var updatedElementsByKey = currentState.elementsByKey
-
-            val existingElement = updatedElementsByKey[elementKey]
+            val existingElement = currentState[elementKey]
 
             // Fast-path: Element exists but has equal or better priority already
             if (existingElement != null && comparator.compare(element, existingElement) >= 0) {
@@ -101,70 +92,196 @@ class ConcurrentPriorityQueue<T, K>(
             }
 
             // Fast-path: Queue is full and the new element is worse than or equal to the lowest priority element
-            if (updatedElements.size >= maxSize && existingElement == null) {
-                val lowestPriorityElement = updatedElements.lastOrNull()
+            if (currentState.size >= maxSize && existingElement == null) {
+                val lowestPriorityElement = currentState.last()
                 if (lowestPriorityElement != null && comparator.compare(element, lowestPriorityElement) >= 0) {
                     return@update currentState
                 }
             }
 
-            // Remove the existing element if we are updating it with a better priority
-            if (existingElement != null) {
-                var removalIndex = updatedElements.binarySearch(existingElement, comparator)
-                require(removalIndex >= 0) { "State corruption: Existing element not found in the internal list." }
-
-                // Handle priority ties: binarySearch might find a different element with the exact same priority
-                if (uniqueKeySelector(updatedElements[removalIndex]) != elementKey) {
-                    var isExactElementFound = false
-
-                    // Scan left for the exact element
-                    for (i in removalIndex - 1 downTo 0) {
-                        if (comparator.compare(updatedElements[i], existingElement) != 0) break
-                        if (uniqueKeySelector(updatedElements[i]) == elementKey) {
-                            removalIndex = i
-                            isExactElementFound = true
-                            break
-                        }
-                    }
-
-                    // Scan right for the exact element
-                    if (!isExactElementFound) {
-                        for (i in removalIndex + 1 until updatedElements.size) {
-                            if (comparator.compare(updatedElements[i], existingElement) != 0) break
-                            if (uniqueKeySelector(updatedElements[i]) == elementKey) {
-                                removalIndex = i
-                                isExactElementFound = true
-                                break
-                            }
-                        }
-                    }
-                    require(isExactElementFound) { "State corruption: Exact element not found despite priority match." }
-                }
-
-                updatedElements = updatedElements.removeAt(removalIndex)
-            }
-
-            // Determine the exact insertion point for the new element
-            val insertionIndex = updatedElements.binarySearch(element, comparator).let { index ->
-                if (index < 0) -(index + 1) else index
-            }
-
-            // Insert the new element and update the lookup map
-            updatedElements = updatedElements.add(insertionIndex, element)
-            updatedElementsByKey = updatedElementsByKey.put(elementKey, element)
+            // Insert the element (handles removal of existing key automatically)
+            var updated = currentState.insert(element)
 
             // Evict the lowest priority element if the capacity is exceeded
-            if (updatedElements.size > maxSize) {
-                val evictedElement = updatedElements.last()
-                updatedElements = updatedElements.removeAt(updatedElements.lastIndex)
-                updatedElementsByKey = updatedElementsByKey.remove(uniqueKeySelector(evictedElement))
+            if (updated.size > maxSize) {
+                updated = updated.removeLast()
             }
 
-            Snapshot(updatedElements, updatedElementsByKey)
+            updated
+        }
+    }
+
+    /**
+     * Batch adds multiple elements to the queue in a single atomic operation.
+     *
+     * This is more efficient than calling [add] multiple times in concurrent scenarios because:
+     * 1. Single CAS operation instead of N separate ones (reduces contention)
+     * 2. Pre-filters duplicates keeping only best priority per key within the batch
+     * 3. All changes are applied atomically
+     *
+     * All deduplication and priority comparison rules from [add] apply.
+     *
+     * @param elements The items to evaluate and potentially add to the queue.
+     */
+    fun addAll(elements: Iterable<T>) {
+        if (maxSize <= 0) return
+
+        val elementsList = when (elements) {
+            is List<T> -> elements
+            is Collection<T> -> elements.toList()
+            else -> elements.toList()
+        }
+        if (elementsList.isEmpty()) return
+
+        queueState.update { currentState ->
+            // Pre-filter: keep only best priority per key within the batch
+            val bestByKey = HashMap<K, T>(minOf(elementsList.size, maxSize * 2))
+            for (element in elementsList) {
+                val key = uniqueKeySelector(element)
+                val existing = bestByKey[key]
+                if (existing == null || comparator.compare(element, existing) < 0) {
+                    bestByKey[key] = element
+                }
+            }
+
+            var updated = currentState
+
+            // Insert each element using the same logic as add()
+            for ((key, element) in bestByKey) {
+                val existingElement = updated[key]
+
+                // Skip if existing has equal or better priority
+                if (existingElement != null && comparator.compare(element, existingElement) >= 0) {
+                    continue
+                }
+
+                // Skip if queue is full and element is worse than worst
+                if (updated.size >= maxSize && existingElement == null) {
+                    val lowestPriorityElement = updated.last()
+                    if (lowestPriorityElement != null && comparator.compare(element, lowestPriorityElement) >= 0) {
+                        continue
+                    }
+                }
+
+                // Insert the element
+                updated = updated.insert(element)
+
+                // Evict if needed
+                if (updated.size > maxSize) {
+                    updated = updated.removeLast()
+                }
+            }
+
+            updated
+        }
+    }
+
+    /**
+     * Asynchronously batch adds multiple elements using parallel processing across CPU cores.
+     *
+     * This suspend function parallelizes the pre-filtering phase across multiple cores,
+     * then applies the filtered results in a single atomic CAS operation.
+     *
+     * **When to use:**
+     * - Large batches (10,000+ elements) where pre-filtering overhead is significant
+     * - When caller is already in a coroutine context
+     * - CPU-bound filtering with complex key extraction or comparison
+     *
+     * **Trade-offs:**
+     * - Additional overhead for small batches due to coroutine creation
+     * - Requires suspend context
+     * - Best performance with Default dispatcher
+     *
+     * @param elements The items to evaluate and potentially add to the queue.
+     * @param parallelism Number of parallel chunks to process. Defaults to 4 (reasonable for most systems).
+     */
+    suspend fun addAllAsync(
+        elements: Iterable<T>,
+        parallelism: Int = DEFAULT_PARALLELISM
+    ) {
+        if (maxSize <= 0) return
+
+        val elementsList = when (elements) {
+            is List<T> -> elements
+            is Collection<T> -> elements.toList()
+            else -> elements.toList()
+        }
+        if (elementsList.isEmpty()) return
+
+        // For small batches, use synchronous addAll
+        if (elementsList.size < 1000 || parallelism <= 1) {
+            addAll(elementsList)
+            return
+        }
+
+        // Phase 1: Parallel pre-filtering - find best priority per key in each chunk
+        val chunkSize = (elementsList.size + parallelism - 1) / parallelism
+        val chunks = elementsList.chunked(chunkSize)
+
+        val partialResults = coroutineScope {
+            chunks.map { chunk ->
+                async(Dispatchers.Default) {
+                    val localBest = HashMap<K, T>(chunk.size / 2 + 1)
+                    for (element in chunk) {
+                        val key = uniqueKeySelector(element)
+                        val existing = localBest[key]
+                        if (existing == null || comparator.compare(element, existing) < 0) {
+                            localBest[key] = element
+                        }
+                    }
+                    localBest
+                }
+            }.awaitAll()
+        }
+
+        // Phase 2: Merge partial results (sequential - typically small after dedup)
+        val mergedBest = HashMap<K, T>(partialResults.sumOf { it.size })
+        for (partial in partialResults) {
+            for ((key, element) in partial) {
+                val existing = mergedBest[key]
+                if (existing == null || comparator.compare(element, existing) < 0) {
+                    mergedBest[key] = element
+                }
+            }
+        }
+
+        // Phase 3: Single atomic CAS update
+        queueState.update { currentState ->
+            var updated = currentState
+
+            for ((key, element) in mergedBest) {
+                val existingElement = updated[key]
+
+                // Skip if existing has equal or better priority
+                if (existingElement != null && comparator.compare(element, existingElement) >= 0) {
+                    continue
+                }
+
+                // Skip if queue is full and element is worse than worst
+                if (updated.size >= maxSize && existingElement == null) {
+                    val lowestPriorityElement = updated.last()
+                    if (lowestPriorityElement != null && comparator.compare(element, lowestPriorityElement) >= 0) {
+                        continue
+                    }
+                }
+
+                // Insert the element
+                updated = updated.insert(element)
+
+                // Evict if needed
+                if (updated.size > maxSize) {
+                    updated = updated.removeLast()
+                }
+            }
+
+            updated
         }
     }
 
     companion object {
+        /** Default parallelism for async operations */
+        const val DEFAULT_PARALLELISM = 4
+
         /**
          * Creates a [ConcurrentPriorityQueue] for [Comparable] types with a custom identity key.
          * By default, it uses a descending sorting order (higher values imply higher priority).
