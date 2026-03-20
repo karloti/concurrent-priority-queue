@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-@file:OptIn(ExperimentalForInheritanceCoroutinesApi::class)
+@file:OptIn(ExperimentalForInheritanceCoroutinesApi::class, ExperimentalCoroutinesApi::class)
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -24,8 +25,16 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.chunked
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.job
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * A concurrent, lock-free priority queue implementation.
@@ -105,173 +114,6 @@ class ConcurrentPriorityQueue<T, K>(
             // Evict the lowest priority element if the capacity is exceeded
             if (updated.size > maxSize) {
                 updated = updated.removeLast()
-            }
-
-            updated
-        }
-    }
-
-    /**
-     * Batch adds multiple elements to the queue in a single atomic operation.
-     *
-     * This is more efficient than calling [add] multiple times in concurrent scenarios because:
-     * 1. Single CAS operation instead of N separate ones (reduces contention)
-     * 2. Pre-filters duplicates keeping only best priority per key within the batch
-     * 3. All changes are applied atomically
-     *
-     * All deduplication and priority comparison rules from [add] apply.
-     *
-     * @param elements The items to evaluate and potentially add to the queue.
-     */
-    fun addAll(elements: Iterable<T>) {
-        if (maxSize <= 0) return
-
-        val elementsList = when (elements) {
-            is List<T> -> elements
-            is Collection<T> -> elements.toList()
-            else -> elements.toList()
-        }
-        if (elementsList.isEmpty()) return
-
-        queueState.update { currentState ->
-            // Pre-filter: keep only best priority per key within the batch
-            val bestByKey = HashMap<K, T>(minOf(elementsList.size, maxSize * 2))
-            for (element in elementsList) {
-                val key = uniqueKeySelector(element)
-                val existing = bestByKey[key]
-                if (existing == null || comparator.compare(element, existing) < 0) {
-                    bestByKey[key] = element
-                }
-            }
-
-            var updated = currentState
-
-            // Insert each element using the same logic as add()
-            for ((key, element) in bestByKey) {
-                val existingElement = updated[key]
-
-                // Skip if existing has equal or better priority
-                if (existingElement != null && comparator.compare(element, existingElement) >= 0) {
-                    continue
-                }
-
-                // Skip if queue is full and element is worse than worst
-                if (updated.size >= maxSize && existingElement == null) {
-                    val lowestPriorityElement = updated.last()
-                    if (lowestPriorityElement != null && comparator.compare(element, lowestPriorityElement) >= 0) {
-                        continue
-                    }
-                }
-
-                // Insert the element
-                updated = updated.insert(element)
-
-                // Evict if needed
-                if (updated.size > maxSize) {
-                    updated = updated.removeLast()
-                }
-            }
-
-            updated
-        }
-    }
-
-    /**
-     * Asynchronously batch adds multiple elements using parallel processing across CPU cores.
-     *
-     * This suspend function parallelizes the pre-filtering phase across multiple cores,
-     * then applies the filtered results in a single atomic CAS operation.
-     *
-     * **When to use:**
-     * - Large batches (10,000+ elements) where pre-filtering overhead is significant
-     * - When caller is already in a coroutine context
-     * - CPU-bound filtering with complex key extraction or comparison
-     *
-     * **Trade-offs:**
-     * - Additional overhead for small batches due to coroutine creation
-     * - Requires suspend context
-     * - Best performance with Default dispatcher
-     *
-     * @param elements The items to evaluate and potentially add to the queue.
-     * @param parallelism Number of parallel chunks to process. Defaults to 4 (reasonable for most systems).
-     */
-    suspend fun addAllAsync(
-        elements: Iterable<T>,
-        parallelism: Int = DEFAULT_PARALLELISM
-    ) {
-        if (maxSize <= 0) return
-
-        val elementsList = when (elements) {
-            is List<T> -> elements
-            is Collection<T> -> elements.toList()
-            else -> elements.toList()
-        }
-        if (elementsList.isEmpty()) return
-
-        // For small batches, use synchronous addAll
-        if (elementsList.size < 1000 || parallelism <= 1) {
-            addAll(elementsList)
-            return
-        }
-
-        // Phase 1: Parallel pre-filtering - find best priority per key in each chunk
-        val chunkSize = (elementsList.size + parallelism - 1) / parallelism
-        val chunks = elementsList.chunked(chunkSize)
-
-        val partialResults = coroutineScope {
-            chunks.map { chunk ->
-                async(Dispatchers.Default) {
-                    val localBest = HashMap<K, T>(chunk.size / 2 + 1)
-                    for (element in chunk) {
-                        val key = uniqueKeySelector(element)
-                        val existing = localBest[key]
-                        if (existing == null || comparator.compare(element, existing) < 0) {
-                            localBest[key] = element
-                        }
-                    }
-                    localBest
-                }
-            }.awaitAll()
-        }
-
-        // Phase 2: Merge partial results (sequential - typically small after dedup)
-        val mergedBest = HashMap<K, T>(partialResults.sumOf { it.size })
-        for (partial in partialResults) {
-            for ((key, element) in partial) {
-                val existing = mergedBest[key]
-                if (existing == null || comparator.compare(element, existing) < 0) {
-                    mergedBest[key] = element
-                }
-            }
-        }
-
-        // Phase 3: Single atomic CAS update
-        queueState.update { currentState ->
-            var updated = currentState
-
-            for ((key, element) in mergedBest) {
-                val existingElement = updated[key]
-
-                // Skip if existing has equal or better priority
-                if (existingElement != null && comparator.compare(element, existingElement) >= 0) {
-                    continue
-                }
-
-                // Skip if queue is full and element is worse than worst
-                if (updated.size >= maxSize && existingElement == null) {
-                    val lowestPriorityElement = updated.last()
-                    if (lowestPriorityElement != null && comparator.compare(element, lowestPriorityElement) >= 0) {
-                        continue
-                    }
-                }
-
-                // Insert the element
-                updated = updated.insert(element)
-
-                // Evict if needed
-                if (updated.size > maxSize) {
-                    updated = updated.removeLast()
-                }
             }
 
             updated

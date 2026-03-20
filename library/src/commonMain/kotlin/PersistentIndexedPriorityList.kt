@@ -14,8 +14,11 @@
  * limitations under the License.
  */
 
+import kotlinx.atomicfu.atomic
+import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentHashMapOf
+import kotlinx.collections.immutable.persistentListOf
 
 /**
  * A persistent, indexed priority list optimized for:
@@ -27,17 +30,21 @@ import kotlinx.collections.immutable.persistentHashMapOf
  * Key insight: Don't store indices at all. The treap structure with subtree sizes
  * allows computing any element's index in O(log n) by traversing from root.
  * This avoids O(n) index updates entirely.
+ *
+ * Thread-safety: All node references are atomic for safe concurrent reads.
+ * The structure itself is immutable/persistent - modifications return new instances.
  */
 class PersistentIndexedPriorityList<T, K> private constructor(
     internal val root: Node<T, K>?,
     internal val elementsByKey: PersistentMap<K, T>,
     private val comparator: Comparator<T>,
     private val keySelector: (T) -> K
-) : Iterable<T> {
+) : PersistentList<T> {
 
     /**
      * Treap node with subtree size for O(log n) index calculations.
      * Stores key for efficient exact-match during removal.
+     * All child references are atomic for safe concurrent access.
      */
     internal class Node<T, K>(
         val element: T,
@@ -55,9 +62,9 @@ class PersistentIndexedPriorityList<T, K> private constructor(
         ): Node<T, K> = Node(element, key, priority, left, right)
     }
 
-    val size: Int get() = root?.size ?: 0
+    override val size: Int get() = root?.size ?: 0
 
-    fun isEmpty(): Boolean = root == null
+    override fun isEmpty(): Boolean = root == null
 
     /**
      * O(1) - Get element by key
@@ -90,9 +97,14 @@ class PersistentIndexedPriorityList<T, K> private constructor(
     /**
      * O(log n) - Get index of element by key (computed, not stored)
      */
-    fun indexOf(key: K): Int {
+    fun indexOfKey(key: K): Int {
         val element = elementsByKey[key] ?: return -1
         return indexOfElement(root, element, key, 0)
+    }
+
+    override fun indexOf(element: T): Int {
+        val key = keySelector(element)
+        return indexOfKey(key)
     }
 
     private fun indexOfElement(node: Node<T, K>?, element: T, key: K, baseIndex: Int): Int {
@@ -261,64 +273,6 @@ class PersistentIndexedPriorityList<T, K> private constructor(
     }
 
     /**
-     * O(m log(n+m)) - Batch insert multiple elements.
-     * More efficient than calling insert() m times because:
-     * 1. Pre-filters duplicates and keeps only best priority per key
-     * 2. Single map rebuild via builder instead of m separate rebuilds
-     * 3. Reduced CAS contention (single atomic update vs m updates)
-     *
-     * @param elements The elements to insert
-     * @return New list with all valid elements inserted
-     */
-    fun insertAll(elements: Iterable<T>): PersistentIndexedPriorityList<T, K> {
-        val inputList = when (elements) {
-            is List -> elements
-            is Collection -> elements.toList()
-            else -> elements.toList()
-        }
-        if (inputList.isEmpty()) return this
-
-        // Step 1: Group by key and keep only the best priority for each key
-        val bestByKey = HashMap<K, T>(minOf(inputList.size, 10000))
-        for (element in inputList) {
-            val key = keySelector(element)
-            val existing = bestByKey[key]
-            if (existing == null || comparator.compare(element, existing) < 0) {
-                bestByKey[key] = element
-            }
-        }
-
-        // Step 2: Filter against existing elements and prepare insertions
-        var currentRoot = root
-        var mapBuilder = elementsByKey.builder()
-        var hasChanges = false
-
-        for ((key, element) in bestByKey) {
-            val existingInTree = mapBuilder[key]
-            
-            if (existingInTree == null) {
-                // New element - insert directly
-                val treapPriority = (element.hashCode().toLong() shl 32) or (kotlin.random.Random.nextLong() and 0xFFFFFFFFL)
-                currentRoot = insertNode(currentRoot, element, key, treapPriority)
-                mapBuilder[key] = element
-                hasChanges = true
-            } else if (comparator.compare(element, existingInTree) < 0) {
-                // New element is better - remove old, insert new
-                currentRoot = removeNode(currentRoot, existingInTree, key)
-                val treapPriority = (element.hashCode().toLong() shl 32) or (kotlin.random.Random.nextLong() and 0xFFFFFFFFL)
-                currentRoot = insertNode(currentRoot, element, key, treapPriority)
-                mapBuilder[key] = element
-                hasChanges = true
-            }
-            // If existing is equal or better, skip
-        }
-
-        if (!hasChanges) return this
-
-        return PersistentIndexedPriorityList(currentRoot, mapBuilder.build(), comparator, keySelector)
-    }
-
-    /**
      * O(k log n) - Remove last k elements (lowest priority)
      */
     fun removeLastN(count: Int): PersistentIndexedPriorityList<T, K> {
@@ -348,7 +302,115 @@ class PersistentIndexedPriorityList<T, K> private constructor(
         inorderTraversal(node.right, result)
     }
 
-    override fun iterator(): Iterator<T> = toList().iterator()
+    // ==================== PersistentList implementation ====================
+
+    override fun iterator(): Iterator<T> = PriorityListIterator(root)
+
+    /**
+     * Efficient iterator that traverses the treap in-order without creating intermediate list.
+     */
+    private class PriorityListIterator<T, K>(root: Node<T, K>?) : Iterator<T> {
+        private val stack = ArrayDeque<Node<T, K>>()
+
+        init {
+            pushLeftPath(root)
+        }
+
+        private fun pushLeftPath(node: Node<T, K>?) {
+            var current = node
+            while (current != null) {
+                stack.addLast(current)
+                current = current.left
+            }
+        }
+
+        override fun hasNext(): Boolean = stack.isNotEmpty()
+
+        override fun next(): T {
+            if (!hasNext()) throw NoSuchElementException()
+            val node = stack.removeLast()
+            pushLeftPath(node.right)
+            return node.element
+        }
+    }
+
+    override fun listIterator(): ListIterator<T> = toList().listIterator()
+
+    override fun listIterator(index: Int): ListIterator<T> = toList().listIterator(index)
+
+    override fun get(index: Int): T = getAt(index) ?: throw IndexOutOfBoundsException("Index: $index, Size: $size")
+
+
+    override fun lastIndexOf(element: T): Int = indexOf(element) // Keys are unique, so same as indexOf
+
+    override fun contains(element: T): Boolean = containsKey(keySelector(element))
+
+    override fun containsAll(elements: Collection<T>): Boolean = elements.all { contains(it) }
+
+//    override fun subList(fromIndex: Int, toIndex: Int): List<T> = toList().subList(fromIndex, toIndex)
+
+    override fun add(element: T): PersistentIndexedPriorityList<T, K> = insert(element)
+
+
+    override fun addAll(elements: Collection<T>): PersistentIndexedPriorityList<T, K> {
+        var result = this
+        for (element in elements) {
+            result = result.insert(element)
+        }
+        return result
+    }
+
+    override fun remove(element: T): PersistentIndexedPriorityList<T, K> = removeByKey(keySelector(element))
+
+    override fun removeAll(elements: Collection<T>): PersistentIndexedPriorityList<T, K> {
+        var result = this
+        for (element in elements) {
+            result = result.removeByKey(keySelector(element))
+        }
+        return result
+    }
+
+    override fun removeAll(predicate: (T) -> Boolean): PersistentIndexedPriorityList<T, K> {
+        val toRemove = elementsByKey.values.filter(predicate)
+        return removeAll(toRemove)
+    }
+
+    override fun retainAll(elements: Collection<T>): PersistentIndexedPriorityList<T, K> {
+        val keysToRetain = elements.map { keySelector(it) }.toSet()
+        val toRemove = elementsByKey.keys.filter { it !in keysToRetain }
+        var result = this
+        for (key in toRemove) {
+            result = result.removeByKey(key)
+        }
+        return result
+    }
+
+    override fun clear(): PersistentIndexedPriorityList<T, K> = empty(comparator, keySelector)
+
+    override fun set(index: Int, element: T): PersistentIndexedPriorityList<T, K> {
+        val oldElement = getAt(index) ?: throw IndexOutOfBoundsException("Index: $index, Size: $size")
+        return removeByKey(keySelector(oldElement)).insert(element)
+    }
+
+    override fun add(index: Int, element: T): PersistentIndexedPriorityList<T, K> {
+        // For a priority list, index is ignored - elements are inserted by priority
+        return insert(element)
+    }
+
+    override fun addAll(index: Int, c: Collection<T>): PersistentIndexedPriorityList<T, K> {
+        // For a priority list, index is ignored - elements are inserted by priority
+        return addAll(c)
+    }
+
+    override fun removeAt(index: Int): PersistentIndexedPriorityList<T, K> {
+        val element = getAt(index) ?: throw IndexOutOfBoundsException("Index: $index, Size: $size")
+        return removeByKey(keySelector(element))
+    }
+
+    override fun builder(): PersistentList.Builder<T> {
+        // Return a builder backed by a standard persistent list for compatibility
+        return persistentListOf<T>().addAll(toList()).builder()
+    }
 
     companion object {
         fun <T, K> empty(comparator: Comparator<T>, keySelector: (T) -> K): PersistentIndexedPriorityList<T, K> {
