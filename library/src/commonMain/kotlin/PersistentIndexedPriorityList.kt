@@ -14,11 +14,15 @@
  * limitations under the License.
  */
 
-import kotlinx.atomicfu.atomic
+@file:OptIn(ExperimentalUuidApi::class)
+
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.persistentListOf
+import kotlin.random.Random
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 /**
  * A persistent, indexed priority list optimized for:
@@ -34,7 +38,7 @@ import kotlinx.collections.immutable.persistentListOf
  * Thread-safety: All node references are atomic for safe concurrent reads.
  * The structure itself is immutable/persistent - modifications return new instances.
  */
-class PersistentIndexedPriorityList<T, K> private constructor(
+internal class PersistentIndexedPriorityList<T, K> private constructor(
     internal val root: Node<T, K>?,
     internal val elementsByKey: PersistentMap<K, T>,
     private val comparator: Comparator<T>,
@@ -80,7 +84,7 @@ class PersistentIndexedPriorityList<T, K> private constructor(
      * O(log n) - Get element at index via tree traversal
      */
     fun getAt(index: Int): T? {
-        if (index < 0 || index >= size) return null
+        if (index !in indices) return null
         return getAtNode(root, index)
     }
 
@@ -159,7 +163,7 @@ class PersistentIndexedPriorityList<T, K> private constructor(
         val afterRemoval = if (existing != null) removeByKey(key) else this
 
         // Insert new element with random priority for treap balancing
-        val treapPriority = (element.hashCode().toLong() shl 32) or (kotlin.random.Random.nextLong() and 0xFFFFFFFFL)
+        val treapPriority = (element.hashCode().toLong() shl 32) or (Random.nextLong() and 0xFFFFFFFFL)
         val newRoot = insertNode(afterRemoval.root, element, key, treapPriority)
         val newMap = afterRemoval.elementsByKey.put(key, element)
 
@@ -200,12 +204,24 @@ class PersistentIndexedPriorityList<T, K> private constructor(
 
     private fun rotateRight(node: Node<T, K>): Node<T, K> {
         val left = node.left ?: return node
-        return Node(left.element, left.key, left.priority, left.left, node.copy(left = left.right))
+        return Node(
+            element = left.element,
+            key = left.key,
+            priority = left.priority,
+            left = left.left,
+            right = node.copy(left = left.right)
+        )
     }
 
     private fun rotateLeft(node: Node<T, K>): Node<T, K> {
         val right = node.right ?: return node
-        return Node(right.element, right.key, right.priority, node.copy(right = right.left), right.right)
+        return Node(
+            element = right.element,
+            key = right.key,
+            priority = right.priority,
+            left = node.copy(right = right.left),
+            right = right.right
+        )
     }
 
     /**
@@ -228,10 +244,12 @@ class PersistentIndexedPriorityList<T, K> private constructor(
                 val newLeft = removeNode(node.left, element, key)
                 if (newLeft === node.left) node else node.copy(left = newLeft)
             }
+
             cmp > 0 -> {
                 val newRight = removeNode(node.right, element, key)
                 if (newRight === node.right) node else node.copy(right = newRight)
             }
+
             else -> {
                 // Same priority - check if exact key match
                 if (node.key == key) {
@@ -414,7 +432,12 @@ class PersistentIndexedPriorityList<T, K> private constructor(
 
     companion object {
         fun <T, K> empty(comparator: Comparator<T>, keySelector: (T) -> K): PersistentIndexedPriorityList<T, K> {
-            return PersistentIndexedPriorityList(null, persistentHashMapOf(), comparator, keySelector)
+            return PersistentIndexedPriorityList(
+                root = null,
+                elementsByKey = persistentHashMapOf<K, T>(),
+                comparator = comparator,
+                keySelector = keySelector
+            )
         }
     }
 }

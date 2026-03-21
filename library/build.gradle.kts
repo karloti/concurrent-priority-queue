@@ -24,7 +24,7 @@ plugins {
     alias(libs.plugins.vanniktech.mavenPublish)
 }
 group = "io.github.karloti"
-version = "1.1.0"
+version = "1.1.1"
 
 kotlin {
     // JVM

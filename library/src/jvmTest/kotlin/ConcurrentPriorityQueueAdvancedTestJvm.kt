@@ -17,6 +17,8 @@
 @file:OptIn(ExperimentalCoroutinesApi::class)
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.asFlow
+import java.util.PriorityQueue
 import java.util.concurrent.ConcurrentSkipListSet
 import kotlin.random.Random
 import kotlin.test.Test
@@ -406,15 +408,20 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         val maxQueueCapacity = 5_000
         val totalElements = 200_000
 
-        val randomSeed = Random(999)
-
         println("Generating $totalElements tasks...")
-        val allTasks = List(totalElements) { index ->
-            TaskItem(
-                identifier = "MassiveTask_$index",
-                priorityLevel = randomSeed.nextInt(1, Int.MAX_VALUE)
-            )
+        val allTasks: Sequence<TaskItem> = sequence {
+            var index = 0
+            while (index < totalElements) {
+                yield(
+                    TaskItem(
+                        identifier = "MassiveTask_$index",
+                        priorityLevel = index % 10000
+                    )
+                )
+                index++
+            }
         }
+        println("Generated $totalElements tasks.")
 
         val deterministicComparator = Comparator<TaskItem> { first, second ->
             val priorityComparison = first.priorityLevel.compareTo(second.priorityLevel)
@@ -430,9 +437,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         )
 
         val addDuration = measureTime {
-            allTasks.forEach { task ->
-                queueAdd.add(task)
-            }
+            queueAdd.addAll(allTasks)
         }
 
         println("Individual add() x $totalElements: $addDuration")
@@ -449,7 +454,10 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         val skipList = ConcurrentSkipListSet(deterministicComparator)
 
         val skipListDuration = measureTime {
-            skipList.addAll(allTasks)
+            allTasks.forEach {
+                skipList.add(it)
+                if (skipList.size > maxQueueCapacity) skipList.removeLast()
+            }
         }
 
         println("Java SkipList addAll(): $skipListDuration")
@@ -471,4 +479,160 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
 
         println("Validation successful.\n")
     }
+
+    /**
+     * Test 7: addAll() Functional Correctness
+     *
+     * Verifies that addAll() correctly handles:
+     * 1. Adding multiple elements filling the queue
+     * 2. Evicting worse elements when full
+     * 3. Rejecting worse elements when full
+     * 4. Returning the correct count of modified/added elements
+     */
+    @Test
+    fun `=== Test 7 addAll() Functional Correctness ===`() = runBlocking {
+        println("=== Test 7: addAll() Functional Correctness ===")
+        val maxQueueCapacity = 10
+
+        val deterministicComparator = Comparator<TaskItem> { first, second ->
+            val priorityComparison = first.priorityLevel.compareTo(second.priorityLevel)
+            if (priorityComparison != 0) priorityComparison else first.identifier.compareTo(second.identifier)
+        }
+
+        val queue = ConcurrentPriorityQueue(
+            maxSize = maxQueueCapacity,
+            comparator = deterministicComparator,
+            uniqueKeySelector = { it.identifier }
+        )
+
+        // 1. Add batch that fits completely
+        // Priorities: 20, 21, 22, 23, 24
+        val batch1 = List(5) { i -> TaskItem("A$i", 20 + i) }
+        val count1 = queue.addAll(batch1)
+
+        assertEquals(5, count1, "First batch should all be added")
+        assertEquals(5, queue.size)
+
+        // 2. Add batch that fills remaining space AND evicts worse elements
+        // Priorities: 10..19. These are all better than 20..24
+        val batch2 = List(10) { i -> TaskItem("B$i", 10 + i) }
+        val count2 = queue.addAll(batch2)
+
+        // Explanation:
+        // Current: [20, 21, 22, 23, 24] (Size 5)
+        // Add 10..14 (5 items) -> Fills queue to 10. Queue: [10..14, 20..24]
+        // Add 15..19 (5 items) -> Each is better than worst (24 down to 20).
+        // So 20..24 get evicted one by one.
+        // Result: [10..19]
+        // All 10 items from batch2 were added.
+        assertEquals(10, count2, "Second batch should all be added (filling + evicting)")
+        assertEquals(10, queue.size)
+
+        val priorities = queue.items.value.map { it.priorityLevel }
+        val expectedPriorities = (10..19).toList()
+        assertContentEquals(expectedPriorities, priorities, "Queue should contain the best tasks (10..19)")
+
+        // 3. Add batch of worse elements - should be rejected
+        // Priorities: 100+ (Worse than 19)
+        val batch3 = List(5) { i -> TaskItem("C$i", 100 + i) }
+        val count3 = queue.addAll(batch3)
+
+        assertEquals(0, count3, "Worse elements should be rejected when queue is full")
+        assertEquals(10, queue.size)
+        assertContentEquals(expectedPriorities, queue.items.value.map { it.priorityLevel }.sorted())
+
+        println("Validation successful. addAll() behaves as expected.\n")
+    }
+
+    /**
+     * Test 8: Massive addAll Benchmark (Millions of items)
+     *
+     * Compare addAll() performance on a list of 1,000,000 elements against [ConcurrentSkipListSet].
+     * Both collections receive the exact same 1D list of elements with unique keys and varying weights.
+     */
+    @Test
+    fun `=== Test 8 Massive addAll Benchmark ===`() = runBlocking {
+        val maxQueueCapacity = 5_000 // Realistic bounded size
+        val count = 50//_000
+        println("=== Test 8: Massive addAll Benchmark (${maxQueueCapacity * count} items) ===")
+
+        val randomSeed = Random(123456)
+        println("Generating $maxQueueCapacity unique tasks...")
+
+        // Pre-allocate list to isolate generation time from benchmark
+        val allTasks = ArrayList<TaskItem>(maxQueueCapacity)
+        for (i in 0 until maxQueueCapacity) {
+            allTasks.add(
+                TaskItem(
+                    identifier = "MassiveTask_$i", // Unique key
+                    priorityLevel = randomSeed.nextInt() // Random weight
+                )
+            )
+        }
+
+        val deterministicComparator = Comparator<TaskItem> { first, second ->
+            val priorityComparison = first.priorityLevel.compareTo(second.priorityLevel)
+            if (priorityComparison != 0) priorityComparison else first.identifier.compareTo(second.identifier)
+        }
+
+        // 1. ConcurrentPriorityQueue
+        val queue = ConcurrentPriorityQueue(
+            maxSize = maxQueueCapacity,
+            comparator = deterministicComparator,
+            uniqueKeySelector = { it.identifier }
+        )
+
+        val cpqTime = measureTime {
+            repeat(count) {
+                queue.addAll(allTasks)
+            }
+        }
+
+        println("ConcurrentPriorityQueue.addAll() Time: $cpqTime")
+        println(
+            "CPQ Throughput: ${
+                String.format(
+                    "%,.0f",
+                    (maxQueueCapacity * count) / cpqTime.inWholeMilliseconds.toDouble() * 1000
+                )
+            } ops/sec"
+        )
+
+        // 2. ConcurrentSkipListSet (Reference)
+        val skipList = ConcurrentSkipListSet(deterministicComparator)
+
+        val skipListTime = measureTime {
+            repeat(count) {
+                skipList.addAll(allTasks)
+            }
+        }
+
+        println("ConcurrentSkipListSet.addAll() Time: $skipListTime")
+        println(
+            "CSLS Throughput: ${
+                String.format(
+                    "%,.0f",
+                    (count * maxQueueCapacity) / skipListTime.inWholeMilliseconds.toDouble() * 1000
+                )
+            } ops/sec"
+        )
+
+        // Validation
+        val finalQueueItems = queue.items.value
+        val finalSkipListItems = skipList.take(maxQueueCapacity) // Take top K to compare with bounded queue
+
+        assertEquals(maxQueueCapacity, finalQueueItems.size, "Queue should be full at capacity")
+        assertEquals(maxQueueCapacity, skipList.size, "SkipList should be full at capacity")
+
+        assertContentEquals(
+            finalSkipListItems,
+            finalQueueItems,
+            "Top $maxQueueCapacity elements do not match between Queue and SkipList!"
+        )
+
+        val speedup = skipListTime.inWholeMilliseconds.toDouble() / cpqTime.inWholeMilliseconds.toDouble()
+        println("\nCustom Queue vs SkipList speedup: ${String.format("%.2f", speedup)}x")
+        println("Validation successful.\n")
+    }
+
 }

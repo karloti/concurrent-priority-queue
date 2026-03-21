@@ -221,5 +221,3 @@ class ConcurrentPriorityQueueTest {
         assertEquals(listOf(1, 2, 3, 4, 5), result.map { it.id })
     }
 }
-
-

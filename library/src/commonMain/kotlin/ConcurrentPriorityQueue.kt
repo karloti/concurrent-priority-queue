@@ -15,9 +15,11 @@
  */
 
 @file:OptIn(ExperimentalForInheritanceCoroutinesApi::class, ExperimentalCoroutinesApi::class)
+@file:Suppress("UNUSED")
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -275,11 +277,7 @@ class ConcurrentPriorityQueue<T, K>(
     fun poll(): T? {
         var result: T? = null
         queueState.update { currentState ->
-            val first = currentState.first()
-            if (first == null) {
-                result = null
-                return@update currentState
-            }
+            val first = currentState.first() ?: return@update currentState
             result = first
             currentState.removeByKey(uniqueKeySelector(first))
         }
@@ -297,10 +295,7 @@ class ConcurrentPriorityQueue<T, K>(
     fun removeByKey(key: K): Boolean {
         var removed = false
         queueState.update { currentState ->
-            if (!currentState.containsKey(key)) {
-                removed = false
-                return@update currentState
-            }
+            if (!currentState.containsKey(key)) return@update currentState
             removed = true
             currentState.removeByKey(key)
         }
@@ -417,7 +412,7 @@ class ConcurrentPriorityQueue<T, K>(
     fun isNotEmpty(): Boolean = !isEmpty()
 
     /**
-     * Adds all elements from the given collection to the queue.
+     * Adds all elements from the given iterable collection to the queue.
      *
      * Elements are added one by one, following the same rules as [add]:
      * - Duplicate keys are handled via upsert semantics
@@ -427,12 +422,59 @@ class ConcurrentPriorityQueue<T, K>(
      *
      * - **Time**: O(m × log n) where m is the number of elements to add
      *
-     * @param elements The collection of elements to add.
+     * @param elements The iterable collection of elements to add.
      * @return The number of elements actually added (excluding rejects and updates).
      */
-    fun addAll(elements: Collection<T>): Int {
+    fun addAll(elements: Iterable<T>): Int {
         var addedCount = 0
         for (element in elements) {
+            if (add(element)) {
+                addedCount++
+            }
+        }
+        return addedCount
+    }
+
+    /**
+     * Adds all elements from the given sequence to the queue.
+     *
+     * Elements are added one by one, following the same rules as [add]:
+     * - Duplicate keys are handled via upsert semantics
+     * - Lowest priority elements are evicted if capacity is exceeded
+     *
+     * ## Complexity
+     *
+     * - **Time**: O(m × log n) where m is the number of elements to add
+     *
+     * @param elements The sequence of elements to add.
+     * @return The number of elements actually added (excluding rejects and updates).
+     */
+    fun addAll(elements: Sequence<T>): Int {
+        var addedCount = 0
+        for (element in elements) {
+            if (add(element)) {
+                addedCount++
+            }
+        }
+        return addedCount
+    }
+
+    /**
+     * Adds all elements from the given flow to the queue.
+     *
+     * Elements are added one by one as they are emitted by the flow, following the same rules as [add].
+     * This method suspends until the flow is fully collected.
+     *
+     * ## Complexity
+     *
+     * - **Time**: O(m × log n) where m is the number of elements to add
+     *
+     * @param elements The flow of elements to add.
+     * @return The number of elements actually added (excluding rejects and updates).
+     */
+    suspend fun addAll(elements: Flow<T>): Int {
+        var addedCount = 0
+        elements.collect { element ->
             if (add(element)) {
                 addedCount++
             }
