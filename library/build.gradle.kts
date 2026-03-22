@@ -24,7 +24,7 @@ plugins {
     alias(libs.plugins.vanniktech.mavenPublish)
 }
 group = "io.github.karloti"
-version = "1.1.1"
+version = "1.2.0"
 
 kotlin {
     // JVM
@@ -102,10 +102,8 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            //put your multiplatform dependencies here
-            implementation(libs.kotlinx.coroutines.core)
+            api(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.collections.immutable)
-            implementation(libs.kotlinx.atomicfu)
         }
 
         commonTest.dependencies {
