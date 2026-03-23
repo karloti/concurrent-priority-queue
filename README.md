@@ -1,9 +1,16 @@
 ![concurrent_priority_queue.png](assets/images/concurrent_priority_queue.png)
+
+![high_performance_concurrent_priority_queue.mp4](assets/images/high_performance_concurrent_priority_queue.mp4)
+
 ![https://www.youtube.com/watch?v=j9fHDFBrw5M](https://www.youtube.com/watch?v=j9fHDFBrw5M)
-[![High-Performance Concurrent Priority Queue
+
+![![High-Performance Concurrent Priority Queue
 ](https://www.youtube.com/watch?v=j9fHDFBrw5M)](https://www.youtube.com/watch?v=j9fHDFBrw5M)
-[![High-Performance Concurrent Priority Queue
+
+![![High-Performance Concurrent Priority Queue
 ](https://https://youtu.be/j9fHDFBrw5M)](https://youtu.be/j9fHDFBrw5M)
+
+![High-Performance Concurrent Priority Queue](https://https://youtu.be/j9fHDFBrw5M)
 
 # Concurrent Priority Queue for Kotlin Multiplatform
 
