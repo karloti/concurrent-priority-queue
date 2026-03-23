@@ -173,7 +173,11 @@ The queue is backed by a persistent (immutable) **Treap** — a combination of a
 - **Heap property** — Parent's random priority > Children's priorities (ensures expected O(log n) balance)
 - **Persistent** — Mutations create new nodes along the path from root to the changed leaf. All other nodes are shared with the previous version (structural sharing). This means an insert touching 4 nodes out of 10,000 only allocates 4 new nodes.
 
-![treap_structural_sharing.png](assets/images/treap_structural_sharing.png)  _A visual diagram showing a treap before and after inserting an element. The left side shows the original tree, the right side shows the new tree after insertion, with shared nodes highlighted in one color and newly created nodes in another color. Arrows indicate structural sharing between the two versions._
+![treap_structural_sharing.png](assets/images/treap_structural_sharing.png)
+*Step 1: Path copying — only nodes on the insertion path are cloned (structural sharing)*
+
+![treap_rotation_after_insert.png](assets/images/treap_rotation_after_insert.png)
+*Step 2: Left rotation restores the heap invariant — node 15 (priority 0.21) rotates above node 10 (priority 0.12)*
 
 **Why Treap over Red-Black Tree or AVL?**
 
