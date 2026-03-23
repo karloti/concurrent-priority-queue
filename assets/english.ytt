@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<timedtext format="3">
+  <head>
+    <wp id="1" ap="7" ah="50" av="10" />
+    <ws id="1" ju="2" />
+  </head>
+  <body>
+    <!-- Изместено с 500ms назад (t-500) спрямо първоначалния синхронизиран файл -->
+    <p t="0" d="2800" wp="1" ws="1">Ever wondered how a huge online game keeps its <s cc="#FFD700">leaderboard</s></p>
+    <p t="3000" d="1800" wp="1" ws="1">perfectly sorted in real time,</p>
+    <p t="5000" d="2900" wp="1" ws="1">even with thousands of players hitting new high scores</p>
+    <p t="8100" d="1800" wp="1" ws="1">every single second?</p>
+    <p t="10300" d="2800" wp="1" ws="1">Well, the secret is a special kind of <s cc="#00FFFF">data structure</s>.</p>
+    <p t="13500" d="2000" wp="1" ws="1">One that's built for exactly that.</p>
+    <p t="15900" d="2500" wp="1" ws="1">High-speed, <s cc="#00FFFF">high concurrency</s> action.</p>
+    <p t="18700" d="2800" wp="1" ws="1">Today, we're diving deep into a seriously powerful tool</p>
+    <p t="21700" d="1800" wp="1" ws="1">that makes it all possible,</p>
+    <p t="23700" d="2500" wp="1" ws="1">a <s cc="#FFD700">lock-free</s> concurrent priority queue.</p>
+    <p t="26500" d="2500" wp="1" ws="1">So, here's our game plan. First, we'll unpack</p>
+    <p t="29200" d="2200" wp="1" ws="1">the core challenge we're trying to solve.</p>
+    <p t="31700" d="3800" wp="1" ws="1">Then, we'll pop the hood and look at the engine making it all possible,</p>
+    <p t="35700" d="2000" wp="1" ws="1">a data structure called the <s cc="#FFD700">Treap</s>.</p>
+    <p t="38000" d="2600" wp="1" ws="1">We'll get into its secrets for saving memory</p>
+    <p t="40900" d="2500" wp="1" ws="1">and handling tons of traffic without locks.</p>
+    <p t="43700" d="2200" wp="1" ws="1">Check out some mind-blowing uses in <s cc="#00FFFF">AI</s>.</p>
+    <p t="46200" d="2800" wp="1" ws="1">And finally, see why this thing is a total game changer.</p>
+    <p t="49300" d="3000" wp="1" ws="1">Okay, so first things first, let's really get to the heart</p>
+    <p t="52600" d="2800" wp="1" ws="1">of the problem this whole thing was designed to solve.</p>
+    <p t="55700" d="3200" wp="1" ws="1">It's all about keeping things in order when it feels like <s cc="#FF6347">total chaos</s>.</p>
+    <p t="59200" d="1500" wp="1" ws="1">So picture this.</p>
+    <p t="61000" d="1800" wp="1" ws="1">You got a top 10 leaderboard.</p>
+    <p t="63100" d="2800" wp="1" ws="1">Every millisecond, new scores are just flooding in.</p>
+    <p t="66200" d="2800" wp="1" ws="1">How in the world do you add the new high scores,</p>
+    <p t="69300" d="3200" wp="1" ws="1">update the ones already there, and kick out the lowest ones,</p>
+    <p t="72800" d="2600" wp="1" ws="1">all while tons of different threads are trying to do</p>
+    <p t="75700" d="2600" wp="1" ws="1">the exact same thing at the exact same time?</p>
+    <p t="78600" d="2500" wp="1" ws="1">You know, if you try to use <s cc="#FF6347">old school locks</s></p>
+    <p t="81400" d="3500" wp="1" ws="1">to manage the chaos, the whole system just grinds to a halt.</p>
+    <p t="85200" d="2200" wp="1" ws="1">But if you don't, you get <s cc="#FF6347">corrupted data</s>.</p>
+    <p t="87700" d="2000" wp="1" ws="1">That's the concurrent ranking problem.</p>
+    <p t="90000" d="3500" wp="1" ws="1">The solution is powered by combining a persistent <s cc="#FFD700">Treap</s> data structure</p>
+    <p t="93800" d="2500" wp="1" ws="1">with Kotlin's <s cc="#00FFFF">MutableStateFlow</s>.</p>
+    <p t="96600" d="2500" wp="1" ws="1">Let's break down exactly how this works</p>
+    <p t="99400" d="2800" wp="1" ws="1">with a step-by-step visual walkthrough.</p>
+    <p t="102500" d="2500" wp="1" ws="1">Imagine we initialize a Concurrent Priority Queue</p>
+    <p t="105300" d="2500" wp="1" ws="1">with a maximum capacity set to exactly seven.</p>
+    <p t="108100" d="2800" wp="1" ws="1">The core of this queue is a <s cc="#FFD700">Treap</s>,</p>
+    <p t="111200" d="3500" wp="1" ws="1">which is essentially a randomized Binary Search Tree.</p>
+    <p t="115000" d="2500" wp="1" ws="1">Each element is assigned two things:</p>
+    <p t="117800" d="3500" wp="1" ws="1">a BST key, which is the value itself, like a score,</p>
+    <p t="121600" d="2500" wp="1" ws="1">and a random Treap priority,</p>
+    <p t="124400" d="3500" wp="1" ws="1">typically a decimal number used strictly for heap balancing.</p>
+    <p t="128200" d="2500" wp="1" ws="1">In our tree ordering, higher values go left,</p>
+    <p t="131000" d="2800" wp="1" ws="1">and lower values go right.</p>
+    <p t="134100" d="2500" wp="1" ws="1">This ensures that the leftmost node</p>
+    <p t="136900" d="2800" wp="1" ws="1">is always our highest priority element,</p>
+    <p t="140000" d="2500" wp="1" ws="1">while the rightmost node represents</p>
+    <p t="142800" d="2000" wp="1" ws="1">the lowest priority element in the queue.</p>
+    <p t="145100" d="3000" wp="1" ws="1">Now, let's look at exactly how the <s cc="#FFD700">Treap</s> handles</p>
+    <p t="148400" d="3500" wp="1" ws="1">a step-by-step insertion of ten elements.</p>
+    <p t="152200" d="2500" wp="1" ws="1">First, we insert our root node with a value of 50</p>
+    <p t="155000" d="3000" wp="1" ws="1">and a random Treap priority of 0.90.</p>
+    <p t="158300" d="3000" wp="1" ws="1">Next, we add 30. Its priority is 0.60,</p>
+    <p t="161600" d="2500" wp="1" ws="1">which is lower than the root, so no rotation is needed.</p>
+    <p t="164400" d="2500" wp="1" ws="1">We insert 70 with a priority of 0.75.</p>
+    <p t="167200" d="3000" wp="1" ws="1">Again, everything is perfectly balanced.</p>
+    <p t="170500" d="3000" wp="1" ws="1">But watch closely when we insert the value 40,</p>
+    <p t="173800" d="3000" wp="1" ws="1">which happens to get a higher priority of 0.80.</p>
+    <p t="177100" d="3000" wp="1" ws="1">This violates the heap property,</p>
+    <p t="180400" d="3000" wp="1" ws="1">triggering an immediate right rotation at node 30.</p>
+    <p t="183700" d="3000" wp="1" ws="1">As we continue, we add 60 with a priority of 0.55.</p>
+    <p t="187000" d="3000" wp="1" ws="1">It slots in perfectly without rotations.</p>
+    <p t="190300" d="2500" wp="1" ws="1">Now things get interesting.</p>
+    <p t="193100" d="3500" wp="1" ws="1">We insert 20 with a strong priority of 0.70.</p>
+    <p t="196900" d="3000" wp="1" ws="1">This triggers a cascading effect:</p>
+    <p t="200200" d="3000" wp="1" ws="1">a rotate right at 10, followed by a rotate left at 30.</p>
+    <p t="203500" d="3000" wp="1" ws="1">Finally, we insert 80 with a massive priority of 0.95.</p>
+    <p t="206800" d="3000" wp="1" ws="1">This triggers cascading right rotations all the way up,</p>
+    <p t="210100" d="3000" wp="1" ws="1">passing 70 and 50, until 80 becomes the new root.</p>
+    <p t="213400" d="3000" wp="1" ws="1">At this point, our queue has reached</p>
+    <p t="216700" d="3000" wp="1" ws="1">its absolute maximum size of 7.</p>
+    <p t="220000" d="3000" wp="1" ws="1">If we try to insert a low value like 5,</p>
+    <p t="223300" d="3000" wp="1" ws="1">the queue rejects it instantly. It's never even inserted.</p>
+    <p t="226600" d="3000" wp="1" ws="1">Throughout all of these insertions, you're seeing</p>
+    <p t="229900" d="3000" wp="1" ws="1"><s cc="#00FFFF">structural sharing</s> and path copying in action.</p>
+    <p t="233200" d="3000" wp="1" ws="1">The newly created nodes,</p>
+    <p t="236500" d="3000" wp="1" ws="1">the ones involved in the path from the root, are marked in orange.</p>
+    <p t="239800" d="3000" wp="1" ws="1">But the rest of the tree—the blue nodes—</p>
+    <p t="243100" d="3000" wp="1" ws="1">are entirely shared from the previous immutable version.</p>
+    <p t="246400" d="3000" wp="1" ws="1">By keeping track of the total nodes created versus the nodes reused,</p>
+    <p t="249700" d="3000" wp="1" ws="1">the memory savings become massive.</p>
+    <p t="253000" d="3000" wp="1" ws="1">If we perform an inorder traversal right now,</p>
+    <p t="256300" d="3000" wp="1" ws="1">we pull the elements in strictly descending order.</p>
+    <p t="259600" d="3000" wp="1" ws="1">We get exactly what we expect:</p>
+    <p t="262900" d="3000" wp="1" ws="1">70, 60, 50, 40, 30, 20, and 10.</p>
+    <p t="266200" d="3000" wp="1" ws="1">Let's shift gears and look at the concurrent access pattern</p>
+    <p t="269500" d="3000" wp="1" ws="1">that makes this all safe.</p>
+    <p t="272800" d="3000" wp="1" ws="1">Picture two coroutine timelines,</p>
+    <p t="276100" d="3000" wp="1" ws="1">running completely in parallel, both trying to modify the same queue.</p>
+    <p t="279400" d="3000" wp="1" ws="1">This is where combining persistent data structures</p>
+    <p t="282700" d="3000" wp="1" ws="1">with Kotlin's <s cc="#00FFFF">StateFlow</s> truly shines.</p>
+    <p t="286000" d="3000" wp="1" ws="1">Writer coroutines generate new immutable versions</p>
+    <p t="289300" d="3000" wp="1" ws="1">of the tree using a <s cc="#FFD700">CAS loop</s>.</p>
+    <p t="292600" d="3000" wp="1" ws="1">CAS stands for Compare-And-Swap.</p>
+    <p t="295900" d="3000" wp="1" ws="1">If two writers collide, one simply retries optimistically.</p>
+    <p t="299200" d="3000" wp="1" ws="1">Meanwhile, your reader coroutines—like a Jetpack Compose UI—</p>
+    <p t="302500" d="3000" wp="1" ws="1">are continuously observing the StateFlow.</p>
+    <p t="305800" d="3000" wp="1" ws="1">They receive every new snapshot automatically</p>
+    <p t="309100" d="3000" wp="1" ws="1">as it becomes available.</p>
+    <p t="312400" d="3000" wp="1" ws="1">There are <s cc="#FFD700">no locks</s>, no thread blocking,</p>
+    <p t="315700" d="3000" wp="1" ws="1">and zero risk of throwing a ConcurrentModificationException.</p>
+    <p t="319000" d="3000" wp="1" ws="1">Every single reader always sees</p>
+    <p t="322300" d="3000" wp="1" ws="1">a perfectly consistent and complete snapshot of the queue.</p>
+    <p t="325600" d="3000" wp="1" ws="1">The library also supports a powerful builder pattern,</p>
+    <p t="328900" d="3000" wp="1" ws="1">using the mutate block.</p>
+    <p t="332200" d="3000" wp="1" ws="1">This allows you to apply batch modifications</p>
+    <p t="335500" d="3000" wp="1" ws="1">without paying the <s cc="#FFD700">CAS</s> overhead for every single operation.</p>
+    <p t="338800" d="3000" wp="1" ws="1">And we cannot forget about the built-in deduplication.</p>
+    <p t="342100" d="3000" wp="1" ws="1">Let's say you receive an event for a unique key</p>
+    <p t="345400" d="3000" wp="1" ws="1">that already exists in the queue.</p>
+    <p t="348700" d="3000" wp="1" ws="1">Thanks to the internal PersistentMap,</p>
+    <p t="352000" d="3000" wp="1" ws="1">the queue performs an <s cc="#00FFFF">O(1) constant-time</s> key lookup.</p>
+    <p t="355300" d="3000" wp="1" ws="1">It automatically performs an upsert,</p>
+    <p t="358600" d="3000" wp="1" ws="1">updating the element only if the new priority is strictly better.</p>
+    <p t="361900" d="3000" wp="1" ws="1">This architecture elegantly solves problems like</p>
+    <p t="365200" d="3000" wp="1" ws="1">rate-limiting high-volume streams,</p>
+    <p t="368500" d="3000" wp="1" ws="1">aggregating IoT sensor data</p>
+    <p t="371800" d="3000" wp="1" ws="1">where you only keep the most recent reading per device,</p>
+    <p t="375100" d="3000" wp="1" ws="1">and tracking multiplayer game states across threads</p>
+    <p t="378400" d="3000" wp="1" ws="1">without any locking bottlenecks.</p>
+    <p t="381700" d="3000" wp="1" ws="1">In fact, it is exceptionally powerful for</p>
+    <p t="385000" d="3000" wp="1" ws="1"><s cc="#FFD700">Edge-device vector search</s>.</p>
+    <p t="388300" d="3000" wp="1" ws="1">You can load sparse or dense embeddings,</p>
+    <p t="391600" d="3000" wp="1" ws="1">run a dot-product comparator,</p>
+    <p t="394900" d="3000" wp="1" ws="1">and get top-K nearest neighbors,</p>
+    <p t="398200" d="3000" wp="1" ws="1">matching words with <s cc="#00FFFF">zero network lag</s>.</p>
+    <p t="401500" d="3000" wp="1" ws="1">You've basically built a powerful vector database</p>
+    <p t="404800" d="3000" wp="1" ws="1">that fits in your pocket.</p>
+    <p t="408100" d="3000" wp="1" ws="1">Okay, so to really drive home</p>
+    <p t="411400" d="3000" wp="1" ws="1">just how much of a leap forward this is,</p>
+    <p t="414700" d="3000" wp="1" ws="1">let's put it head-to-head with the closest thing</p>
+    <p t="418000" d="3000" wp="1" ws="1">you'd find in a standard library.</p>
+    <p t="421300" d="3000" wp="1" ws="1">And this table just lays it all out, crystal clear.</p>
+    <p t="424600" d="3000" wp="1" ws="1">Let's compare it to something like Java's concurrent skip list set.</p>
+    <p t="427900" d="3000" wp="1" ws="1">Sure, that one's also <s cc="#FFD700">lock free</s>,</p>
+    <p t="431200" d="3000" wp="1" ws="1">but that's pretty much where the similarities end.</p>
+    <p t="434500" d="3000" wp="1" ws="1">Bounded capacity with this queue.</p>
+    <p t="437800" d="3000" wp="1" ws="1">It's built in.</p>
+    <p t="441100" d="3000" wp="1" ws="1">With the other guy, yeah, you're coding that by hand.</p>
+    <p t="444400" d="3000" wp="1" ws="1">Good luck with the bugs.</p>
+    <p t="447700" d="3000" wp="1" ws="1">Updating an item score here. It's automatic.</p>
+    <p t="451000" d="3000" wp="1" ws="1">Over there, you have to manually remove the old one</p>
+    <p t="454300" d="3000" wp="1" ws="1">and add the new one back in.</p>
+    <p t="457600" d="3000" wp="1" ws="1">On top of all that, this thing gives you instant lookup by key</p>
+    <p t="460900" d="3000" wp="1" ws="1">and is built from the ground up to be <s cc="#00FFFF">reactive</s></p>
+    <p t="464200" d="3000" wp="1" ws="1">and work on any platform.</p>
+    <p t="467500" d="3000" wp="1" ws="1">So, you see, it's not just that one of these features is cool.</p>
+    <p t="470800" d="3000" wp="1" ws="1">It's the combination of all of them working together.</p>
+    <p t="474100" d="3000" wp="1" ws="1">The <s cc="#FFD700">lock free</s> concurrency, the smart memory sharing,</p>
+    <p t="477400" d="3000" wp="1" ws="1">the automatic bounding, and the reactive design.</p>
+    <p t="480700" d="3000" wp="1" ws="1">That's what makes it so powerful.</p>
+    <p t="484000" d="3000" wp="1" ws="1">It just elegantly solves an entire class of problems</p>
+    <p t="487300" d="3000" wp="1" ws="1">that are usually a massive headache.</p>
+    <p t="490600" d="3000" wp="1" ws="1">And that really just leaves one final thought for you.</p>
+    <p t="493900" d="3000" wp="1" ws="1">From real-time dashboards and streaming sensor data</p>
+    <p t="497200" d="3000" wp="1" ws="1">to building the next generation of <s cc="#00FFFF">AI apps</s></p>
+    <p t="500500" d="3000" wp="1" ws="1">that work completely offline,</p>
+    <p t="503800" d="3000" wp="1" ws="1">where could a data structure this smart,</p>
+    <p t="507100" d="3000" wp="1" ws="1">this fast, and this efficient</p>
+    <p t="510400" d="4000" wp="1" ws="1">make a real difference in what you're building next?</p>
+  </body>
+</timedtext>

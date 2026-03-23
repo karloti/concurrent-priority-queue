@@ -1,5 +1,9 @@
 ![concurrent_priority_queue.png](assets/images/concurrent_priority_queue.png)
-![Lock-Free_Ranking.webm](assets/images/Lock-Free_Ranking.webm)
+![https://www.youtube.com/watch?v=j9fHDFBrw5M](https://www.youtube.com/watch?v=j9fHDFBrw5M)
+[![High-Performance Concurrent Priority Queue
+](https://www.youtube.com/watch?v=j9fHDFBrw5M)](https://www.youtube.com/watch?v=j9fHDFBrw5M)
+[![High-Performance Concurrent Priority Queue
+](https://https://youtu.be/j9fHDFBrw5M)](https://youtu.be/j9fHDFBrw5M)
 
 # Concurrent Priority Queue for Kotlin Multiplatform
 
