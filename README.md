@@ -29,7 +29,7 @@ A high-performance, **lock-free**, **bounded** priority queue for Kotlin Multipl
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("io.github.karloti:concurrent-priority-queue:1.2.0")
+    implementation("io.github.karloti:concurrent-priority-queue:1.3.0")  // <- Use latest version
 }
 ```
 
