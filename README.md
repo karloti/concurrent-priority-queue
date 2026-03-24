@@ -1,4 +1,4 @@
-[![High-Performance Concurrent Priority Queue](assets/images/concurrent_priority_queue.png)](https://youtu.be/j9fHDFBrw5M)
+[![High-Performance Concurrent Priority Queue](assets/images/concurrent_priority_queue.png)](https://youtu.be/6E7KxG_bQdQ)
 
 # Concurrent Priority Queue for Kotlin Multiplatform
 
