@@ -167,29 +167,72 @@ The library is structured following Kotlin conventions inspired by `kotlinx.coll
 
 ### Data Structure: Persistent Treap
 
-The queue is backed by a persistent (immutable) **Treap** — a combination of a Binary Search Tree (BST) and a Heap:
+The queue is backed by a persistent (immutable) **Treap** — a randomized binary search tree that combines two properties:
 
-- **BST property** — Left subtree < Node < Right subtree (maintains sorted order by comparator)
-- **Heap property** — Parent's random priority > Children's priorities (ensures expected O(log n) balance)
-- **Persistent** — Mutations create new nodes along the path from root to the changed leaf. All other nodes are shared with the previous version (structural sharing). This means an insert touching 4 nodes out of 10,000 only allocates 4 new nodes.
+- **BST property** — nodes are ordered by the user-supplied comparator (left < parent < right), so in-order traversal yields sorted output.
+- **Heap property** — each node carries a **random priority** (a "noise" value assigned at insertion time). A parent's priority is always greater than its children's. This single rule, powered by randomness, keeps the tree balanced in expected O(log n) depth — **without** any color bits, height counters, or complex rebalancing rules.
+
+The key insight: **randomness replaces complexity**. Red-Black trees need 5 invariant rules and cascading recoloring. AVL trees need height tracking and up to O(log n) rotations per insert. A Treap needs only one rule — "parent priority > child priority" — enforced by a single rotation when violated. The random priorities ensure that, on average, the tree is as balanced as if the elements were inserted in random order, regardless of the actual insertion order.
+
+#### How Insertion Works
+
+When inserting a new element, the algorithm performs two phases:
+
+**Phase 1 — Descent and path recording:**
+
+The algorithm iteratively descends the tree following BST order (comparator) until it reaches a `null` position, recording the path from root to insertion point in an `ArrayList` and tracking left/right directions in a `Long` bitmask. The iterative approach guarantees constant stack usage regardless of tree size — no risk of stack overflow even for queues with millions of elements.
 
 ![treap_structural_sharing.png](assets/images/treap_structural_sharing.png)
-*Step 1: Path copying — only nodes on the insertion path are cloned (structural sharing)*
+*Step 1: Insert(15) — the algorithm descends to a null position and creates leaf 15. Then, walking the recorded path bottom-up, nodes 10, 20, 30 are copied with references to the new child (path copying). Nodes 25, 40, 50 are shared (blue) — zero allocation for them. Note: node 15 (priority 0.21) > parent 10' (priority 0.12) — heap property is violated, rotation needed (see Step 2).*
+
+**Phase 2 — Bottom-up reconstruction with fused rotations:**
+
+The algorithm walks the recorded path in reverse (bottom-up), reconstructing nodes with path copying. At each level it checks: does the newly inserted child have a higher priority than its parent? If yes, a **fused rotation** moves the child up — combining the node copy and rotation into a single allocation (instead of two). Rotations stop as soon as the heap property is satisfied.
 
 ![treap_rotation_after_insert.png](assets/images/treap_rotation_after_insert.png)
-*Step 2: Left rotation restores the heap invariant — node 15 (priority 0.21) rotates above node 10 (priority 0.12)*
+*Step 2: rotateLeft(10') — node 15 (priority 0.21) has higher priority than parent 10 (priority 0.12), so a left rotation makes 15 the parent and 10 becomes its left child. Now 15' (0.21) < 20' (0.45) — heap property satisfied, no more rotations needed.*
+
+**Total allocations for insert(15):** 5 new nodes (30', 20', 15', 10'', and the leaf 15). **Shared (zero-copy):** 3 nodes (50, 25, 40). Without structural sharing, all 7 nodes of the resulting tree would require fresh allocation. Fused rotations produce the rotation output (`15'` and `10''`) in a single allocation step — a naive implementation would first copy the parent, then rotate, creating an intermediate node that is immediately discarded.
+
+> **Scaling perspective:** In this small tree (6 nodes), structural sharing saves just 1 allocation. But in a tree with 10,000 nodes, an insert copies only ~13 nodes (log₂ 10,000) while sharing the remaining ~9,987 — a **99.87% reduction** in allocation.
+
+#### Internal Data Structures
+
+Each version of the queue (each immutable snapshot) consists of **two synchronized persistent structures**:
+
+1. **Treap** (`Node<T, K>`) — A binary tree where each node stores the element, its key, a random priority, left/right child references, and a **subtree size** counter. The subtree size enables O(log n) indexed access (`get(index)`) without traversing the entire tree. In-order traversal yields elements in sorted (comparator) order.
+
+2. **PersistentHashMap** (`PersistentMap<K, T>` from `kotlinx.collections.immutable`) — A Hash Array Mapped Trie (HAMT) that maps keys to elements, providing **O(1) key lookup**. This powers `contains(key)`, `get(key)`, and the upsert check: *"does this key already exist, and is the new element strictly better by comparator?"* Without this map, key lookup would require O(log n) tree traversal.
+
+Both structures are fully immutable. Every mutation produces a new Treap root **and** a new PersistentMap, wrapped together in a new `TreapPriorityList` instance. The `ConcurrentPriorityQueue` then atomically swaps this instance into its `MutableStateFlow` via CAS.
+
+**How the upsert works (step by step):**
+1. Look up the key in the PersistentMap — O(1).
+2. If the key exists and the new element is NOT strictly better by comparator → **reject** (return `this`, zero allocation).
+3. If the key exists and the new element IS better → **remove** the old element from both Treap and Map, then insert the new one.
+4. If the key doesn't exist → **insert** directly.
+
+**Priority generation:** Each node's treap priority is a fully random `Long` generated by `Random.nextLong()` at insertion time. Pure randomness is critical — it ensures expected O(log n) tree depth regardless of the actual insertion order or element type. Using `hashCode()` as part of the priority would be a mistake: for types like `Int` (where `hashCode() == value`), the priority would correlate with comparator order, producing degenerate O(n)-depth trees instead of balanced O(log n) ones.
 
 **Why Treap over Red-Black Tree or AVL?**
 
 | Property | Treap | Red-Black Tree | AVL Tree |
 |----------|-------|----------------|----------|
 | Balance guarantee | Expected O(log n) | Worst-case O(log n) | Worst-case O(log n) |
-| Rebalancing complexity | Simple rotations | Complex color rules | Height tracking |
-| Persistent-friendly | Excellent (path-copy only) | Difficult (recoloring propagates) | Moderate |
+| Rebalancing complexity | Single rotation per level | 5 color rules, cascading recoloring | Height tracking, double rotations |
+| Persistent-friendly | Excellent (path-copy only) | Difficult (recoloring propagates up) | Moderate (height updates propagate) |
+| Nodes touched per insert | O(log n) path only | O(log n) + recoloring ancestors | O(log n) + height updates |
 | Implementation size | ~100 lines | ~300+ lines | ~200+ lines |
-| Random seed requirement | Yes | No | No |
 
-The treap's simplicity makes it ideal for persistent data structures where every mutation produces a new root. Unlike Red-Black trees, treap rotations are local and never cascade, which means persistent copies touch minimal nodes.
+The treap's simplicity makes it ideal for persistent data structures where every mutation produces a new root. Unlike Red-Black trees, treap rotations are local and never cascade, which means persistent copies touch minimal nodes. The random priority ("noise") is the secret — it provides probabilistic balance that is indistinguishable from optimal in practice, with none of the implementation complexity.
+
+#### Bounded Eviction
+
+When `maxSize` is set, the queue automatically manages capacity:
+
+1. **Fast-path rejection:** If the queue is full and the new element's key doesn't already exist, it is compared against the current worst (`last()`, O(log n) traversal to the rightmost node). If the new element is worse or equal — **rejected, zero allocation** (no path copying, no new treap version). This avoids the cost of insert + evict (2x O(log n) + allocations), which is why the benchmark shows 5x speedup over `ConcurrentSkipListSet` for repeated adds to a full queue.
+2. **Insert** the new element into the treap — O(log n).
+3. **Evict:** if `size > maxSize`, call `removeLast()` which walks to the rightmost node (the worst element by comparator order) and removes it — O(log n). The evicted element is returned to the caller.
 
 ### Concurrency Model
 
@@ -330,15 +373,45 @@ val list4 = buildPersistentPriorityList(compareBy { it.priority }, { it.id }) {
 ### Benchmark: ConcurrentPriorityQueue vs. ConcurrentSkipListSet
 
 **Environment:** Windows 11, OpenJDK 21, Kotlin 2.3.10
-**Test:** 100,000,000 repeated `addAll` operations on a bounded queue (capacity: 10,000, repeated 10,000 times with the same 10,000 unique elements) compared against `java.util.concurrent.ConcurrentSkipListSet`.
+
+#### addAll Throughput (100M operations)
+
+Repeated `addAll` on a bounded queue (capacity 100,000) with 100,000 unique elements × 1,000 iterations, compared against `java.util.concurrent.ConcurrentSkipListSet` receiving identical input.
 
 | Metric | ConcurrentPriorityQueue | ConcurrentSkipListSet |
 |--------|------------------------|-----------------------|
-| Total time (100M ops) | **4.08 s** | 18.47 s |
-| Throughput | **24.5M ops/sec** | 5.4M ops/sec |
-| Speedup | **4.53x faster** | baseline |
+| Total time (100M ops) | **10.07 s** | 50.69 s |
+| Throughput | **9.93M ops/sec** | 1.97M ops/sec |
+| Speedup | **5.03x faster** | baseline |
 
-> **Why is CPQ faster?** The bounded capacity is the key advantage. Once the queue is full (10,000 elements), every subsequent `add` of a duplicate or worse-priority element is rejected in O(1) via fast-path checks — no tree traversal needed. `ConcurrentSkipListSet` has no capacity limit and must traverse and compare against its full skip-list structure on every call. Additionally, structural sharing means that when an insert does modify the treap, only ~13 nodes (log2 10,000) are allocated; all other nodes are reused.
+![benchmark_addall_throughput.png](assets/images/benchmark_addall_throughput.png)
+*addAll throughput comparison: ConcurrentPriorityQueue vs ConcurrentSkipListSet — 100M operations on 100K-capacity queue.*
+
+#### Insert Throughput by Queue Size (1M inserts each)
+
+| Queue Capacity | Throughput | Expected Tree Depth |
+|---------------|------------|---------------------|
+| 100 | 20,408,163 ops/sec | ~7 |
+| 1,000 | 9,523,810 ops/sec | ~10 |
+| 10,000 | 193,125 ops/sec | ~13 |
+| 100,000 | 1,890 ops/sec | ~17 |
+
+Note: `ConcurrentSkipListSet` cannot be bounded — at 100,000 capacity with 1M inserts it grows to 1M elements, consuming unbounded memory. CPQ maintains exactly 100,000 elements throughout via automatic eviction.
+
+![benchmark_throughput_by_size.png](assets/images/benchmark_throughput_by_size.png)
+*Insert throughput scaling: as queue capacity grows from 100 to 100K, each insert touches more nodes (log₂ n path copies), reducing throughput. The logarithmic x-axis highlights the O(log n) relationship.*
+
+#### Concurrent Insert Throughput
+
+32 coroutines on `Dispatchers.Default`, each inserting 100,000 random integers into a queue of capacity 10,000:
+
+| Metric | Value |
+|--------|-------|
+| Total operations | 3,200,000 |
+| Total time | 8.51 s |
+| Throughput | **376,117 concurrent ops/sec** |
+
+> **Why is CPQ faster in addAll?** The bounded capacity is the key advantage. Once the queue is full, every subsequent `add` of a duplicate or worse-priority element is rejected via fast-path checks — O(log n) comparison against the worst element, zero allocation. `ConcurrentSkipListSet` has no capacity limit and must traverse and compare against its full skip-list structure on every call. Structural sharing means that when an insert does modify the treap, only ~17 nodes (log₂ 100,000) are allocated; all other nodes are reused. The fused insert+rotate optimization further reduces allocations by eliminating intermediate node copies during rotations.
 >
 > Both implementations produce identical sorted output for the same input, validated at the end of each benchmark run.
 
@@ -554,9 +627,12 @@ Shared nodes:      ~9,987  (99.87%)
 
 This means:
 
-- **Memory per mutation:** O(log n) new objects.
-- **Garbage collection friendly:** Old versions are reclaimed when no longer referenced. The persistent structure naturally supports GC since there are no cyclic references.
+- **Memory per mutation:** O(log n) new objects. Measured at **~11 bytes per insert** on a full queue of 10,000 elements (1M inserts, JVM with GC). The low measured value reflects that most inserts to a full queue are rejected via fast-path (zero allocation) — only inserts that actually modify the tree allocate ~13 nodes.
+- **Garbage collection friendly:** Old versions are reclaimed when no longer referenced. The persistent structure naturally supports GC since there are no cyclic references. Measured retained memory after 1M inserts + GC: **190 KB** — all intermediate versions are fully reclaimed.
 - **CAS retry cost:** If a CAS fails, the retry recomputes only O(log n) nodes — not the entire structure.
+
+![memory_structural_sharing.png](assets/images/memory_structural_sharing.png)
+*Memory profile during 1M inserts into a full 10K queue: peak allocation is minimal, and GC reclaims all intermediate versions — retained delta near zero.*
 
 ### Memory Overhead vs. Mutable Collections
 
@@ -573,13 +649,13 @@ The higher per-element overhead is the trade-off for lock-free concurrency and O
 
 ## Test Coverage
 
-The library has **57 tests** across 3 test suites, all passing on JVM, JS, Native (Windows/Linux/macOS), and WebAssembly:
+The library has **60 tests** across 3 test suites, all passing on JVM, JS, Native (Windows/Linux/macOS), and WebAssembly:
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
 | **Unit Tests** | 45 | All public methods: add, poll, remove, removeByKey, removeIf, retainIf, clear, contains, containsKey, get, first, last, isEmpty, isNotEmpty, size, items, iterator, addAll (Iterable/Sequence/Flow), factory methods, edge cases (maxSize=0, empty queue, eviction, upsert, re-entry after eviction) |
 | **Concurrency Tests** | 10 | Thread-safety under contention: concurrent adds, upserts, removes, polls, removeIf, retainIf, clear, removeByKey, mixed mutations, snapshot isolation |
-| **JVM Advanced Tests** | 2 | addAll functional correctness with ConcurrentSkipListSet reference comparison; 1M-item throughput benchmark |
+| **JVM Advanced Tests** | 5 | addAll functional correctness with ConcurrentSkipListSet reference comparison; 100M-operation throughput benchmark vs SkipListSet (capacity 100K); insert throughput scaling by queue size (100 → 100,000); memory allocation per insert (1M inserts); concurrent insert throughput (32 coroutines, 3.2M operations, 376K ops/sec) |
 
 ---
 

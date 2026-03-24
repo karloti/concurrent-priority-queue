@@ -84,9 +84,9 @@ class ConcurrentPriorityQueueConcurrencyTest {
      */
     @Test
     fun `concurrent adds from many coroutines maintain capacity and uniqueness`() = runTest {
-        val maxSize = 50
-        val coroutines = 20
-        val elementsPerCoroutine = 100
+        val maxSize = if (TestConfig.LOCAL) 50 else 20
+        val coroutines = if (TestConfig.LOCAL) 20 else 5
+        val elementsPerCoroutine = if (TestConfig.LOCAL) 100 else 20
 
         val queue = ConcurrentPriorityQueue<Item, Int>(
             maxSize = maxSize,

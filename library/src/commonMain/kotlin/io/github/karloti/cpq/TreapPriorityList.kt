@@ -109,7 +109,7 @@ internal class TreapPriorityList<T, K> private constructor(
 
         val afterRemoval = if (existing != null) removeByKey(key) else this
 
-        val treapPriority = (element.hashCode().toLong() shl 32) or (Random.nextLong() and 0xFFFFFFFFL)
+        val treapPriority = Random.nextLong()
         val newRoot = insertNode(afterRemoval.root, element, key, treapPriority)
         val newMap = afterRemoval.elementsByKey.put(key, element)
 
@@ -330,22 +330,55 @@ internal class TreapPriorityList<T, K> private constructor(
 
     private fun getLast(node: Node<T, K>): T = node.right?.let { getLast(it) } ?: node.element
 
-    private fun insertNode(node: Node<T, K>?, element: T, key: K, priority: Long): Node<T, K> {
-        if (node == null) {
-            return Node(element, key, priority)
+    private fun insertNode(root: Node<T, K>?, element: T, key: K, priority: Long): Node<T, K> {
+        if (root == null) return Node(element, key, priority)
+
+        // Phase 1: Descend to insertion point, recording path and directions
+        val path = ArrayList<Node<T, K>>(32)
+        var directions = 0L // bit i = 1 means went left at depth i
+        var cur: Node<T, K>? = root
+        while (cur != null) {
+            val depth = path.size
+            path.add(cur)
+            val cmp = comparator.compare(element, cur.element)
+            if (cmp <= 0) {
+                directions = directions or (1L shl depth)
+                cur = cur.left
+            } else {
+                cur = cur.right
+            }
         }
 
-        val cmp = comparator.compare(element, node.element)
-
-        return if (cmp <= 0) {
-            val newLeft = insertNode(node.left, element, key, priority)
-            val newNode = node.copy(left = newLeft)
-            if (newLeft.priority > node.priority) rotateRight(newNode) else newNode
-        } else {
-            val newRight = insertNode(node.right, element, key, priority)
-            val newNode = node.copy(right = newRight)
-            if (newRight.priority > node.priority) rotateLeft(newNode) else newNode
+        // Phase 2: Build result bottom-up with fused rotations
+        var node: Node<T, K> = Node(element, key, priority)
+        for (i in path.lastIndex downTo 0) {
+            val parent = path[i]
+            val wentLeft = (directions and (1L shl i)) != 0L
+            node = if (wentLeft) {
+                if (node.priority > parent.priority) {
+                    // Fused rotate-right: skip intermediate parent.copy(left=node)
+                    Node(
+                        node.element, node.key, node.priority,
+                        left = node.left,
+                        right = Node(parent.element, parent.key, parent.priority, left = node.right, right = parent.right)
+                    )
+                } else {
+                    parent.copy(left = node)
+                }
+            } else {
+                if (node.priority > parent.priority) {
+                    // Fused rotate-left: skip intermediate parent.copy(right=node)
+                    Node(
+                        node.element, node.key, node.priority,
+                        left = Node(parent.element, parent.key, parent.priority, left = parent.left, right = node.left),
+                        right = node.right
+                    )
+                } else {
+                    parent.copy(right = node)
+                }
+            }
         }
+        return node
     }
 
     private fun rotateRight(node: Node<T, K>): Node<T, K> {

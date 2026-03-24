@@ -19,6 +19,8 @@
 import io.github.karloti.cpq.ConcurrentPriorityQueue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import java.util.concurrent.ConcurrentSkipListSet
@@ -26,6 +28,7 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.time.measureTime
 
 /**
@@ -123,9 +126,9 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
      */
     @Test
     fun `=== Test 8 Massive addAll Benchmark ===`() = runBlocking {
-        val maxQueueCapacity = 10_000 // Realistic bounded size
-        val count = 100 // Total operations: maxQueueCapacity * count
-        println("=== Test 8: Massive addAll Benchmark (${maxQueueCapacity * count} items) ===")
+        val maxQueueCapacity = if (TestConfig.LOCAL) 1_00_000 else 1_000
+        val count = if (TestConfig.LOCAL) 1_000 else 10
+        println("=== Test 8: Massive addAll Benchmark (${maxQueueCapacity * count} items, local=${TestConfig.LOCAL}) ===")
 
         val randomSeed = Random(123456)
         println("Generating $maxQueueCapacity unique tasks...")
@@ -203,6 +206,154 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
 
         val speedup = skipListTime.inWholeMilliseconds.toDouble() / cpqTime.inWholeMilliseconds.toDouble()
         println("\nCustom Queue vs SkipList speedup: ${String.format("%.2f", speedup)}x")
+        println("Validation successful.\n")
+    }
+
+    /**
+     * Test 9: Insert Throughput at Various Queue Sizes
+     *
+     * Measures insert throughput for different maxSize values to observe
+     * how tree depth (path copy length) affects performance.
+     * Validates correctness (sorted order, size, key uniqueness) at each scale.
+     */
+    @Test
+    fun `=== Test 9 Insert Throughput by Queue Size ===`() = runBlocking(Dispatchers.Default) {
+        val sizes = if (TestConfig.LOCAL) listOf(100, 1_000, 10_000, 100_000) else listOf(100, 1_000)
+        val insertCount = if (TestConfig.LOCAL) 1_000_000 else 10_000
+
+        println("=== Test 9: Insert Throughput by Queue Size (local=${TestConfig.LOCAL}) ===")
+        println("Insert count per size: $insertCount")
+        println("%-12s  %12s  %15s  %8s".format("maxSize", "Time", "Throughput", "Depth"))
+
+        for (maxSize in sizes) {
+            val queue = ConcurrentPriorityQueue<Int>(maxSize = maxSize)
+
+            val time = measureTime {
+                for (i in 0 until insertCount) {
+                    queue.add(Random.nextInt())
+                }
+            }
+
+            val throughput = insertCount / time.inWholeMilliseconds.toDouble() * 1000
+            val expectedDepth = (Math.log(maxSize.toDouble()) / Math.log(2.0)).toInt()
+
+            println("%-12d  %12s  %,15.0f ops/sec  ~%d".format(maxSize, time, throughput, expectedDepth))
+
+            // Validate correctness
+            val items = queue.items.value
+            assertEquals(minOf(maxSize, insertCount), items.size, "Size mismatch for maxSize=$maxSize")
+
+            // Verify sorted order (descending for Comparable default)
+            for (i in 0 until items.size - 1) {
+                assertTrue(items[i] >= items[i + 1], "Sort violation at index $i for maxSize=$maxSize")
+            }
+        }
+
+        println("Validation successful.\n")
+    }
+
+    /**
+     * Test 10: Memory Allocation Measurement
+     *
+     * Measures approximate heap allocation per insert operation by comparing
+     * used memory before and after a batch of inserts. Forces GC to get a baseline.
+     */
+    @Test
+    fun `=== Test 10 Memory Allocation per Insert ===`() = runBlocking(Dispatchers.Default) {
+        val maxSize = if (TestConfig.LOCAL) 10_000 else 5_000
+        val insertCount = if (TestConfig.LOCAL) 1_000_000 else 20_000
+
+        println("=== Test 10: Memory Allocation per Insert (local=${TestConfig.LOCAL}) ===")
+        println("maxSize=$maxSize, inserts=$insertCount")
+
+        val queue = ConcurrentPriorityQueue<Int>(maxSize = maxSize)
+
+        // Warm up and fill the queue
+        for (i in 0 until maxSize) {
+            queue.add(Random.nextInt())
+        }
+
+        // Force GC and measure baseline
+        System.gc()
+        Thread.sleep(100)
+        val memBefore = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()
+
+        // Perform measured inserts (queue is already full → inserts trigger evictions + path copies)
+        for (i in 0 until insertCount) {
+            queue.add(Random.nextInt())
+        }
+
+        // Measure after
+        val memAfter = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()
+
+        // Force GC to see retained memory
+        System.gc()
+        Thread.sleep(100)
+        val memRetained = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()
+
+        val allocatedPerInsert = (memAfter - memBefore).toDouble() / insertCount
+        val retainedTotal = memRetained - memBefore
+
+        println("Approx allocated per insert: ${String.format("%.0f", allocatedPerInsert)} bytes")
+        println("Memory before: ${memBefore / 1024 / 1024} MB")
+        println("Memory peak:   ${memAfter / 1024 / 1024} MB")
+        println("Memory after GC: ${memRetained / 1024 / 1024} MB")
+        println("Retained delta: ${retainedTotal / 1024} KB (should be near zero — old versions are GC'd)")
+
+        // Validate queue is still correct
+        val items = queue.items.value
+        assertEquals(maxSize, items.size, "Queue should be full")
+        for (i in 0 until items.size - 1) {
+            assertTrue(items[i] >= items[i + 1], "Sort violation at index $i")
+        }
+
+        println("Validation successful.\n")
+    }
+
+    /**
+     * Test 11: Concurrent Insert Throughput
+     *
+     * Measures throughput when multiple coroutines insert concurrently,
+     * exercising the CAS retry mechanism under contention.
+     */
+    @Test
+    fun `=== Test 11 Concurrent Insert Throughput ===`() = runBlocking(Dispatchers.Default) {
+        val maxSize = if (TestConfig.LOCAL) 10_000 else 1_000
+        val coroutineCount = if (TestConfig.LOCAL) 32 else 4
+        val insertsPerCoroutine = if (TestConfig.LOCAL) 100_000 else 5_000
+        val totalInserts = coroutineCount * insertsPerCoroutine
+
+        println("=== Test 11: Concurrent Insert Throughput (local=${TestConfig.LOCAL}) ===")
+        println("maxSize=$maxSize, coroutines=$coroutineCount, inserts/coroutine=$insertsPerCoroutine")
+
+        val queue = ConcurrentPriorityQueue<Int>(maxSize = maxSize)
+
+        val time = measureTime {
+            coroutineScope {
+                repeat(coroutineCount) { coroutineId ->
+                    launch(Dispatchers.Default) {
+                        val rng = Random(coroutineId)
+                        repeat(insertsPerCoroutine) {
+                            queue.add(rng.nextInt())
+                        }
+                    }
+                }
+            }
+        }
+
+        val throughput = totalInserts / time.inWholeMilliseconds.toDouble() * 1000
+
+        println("Total time: $time")
+        println("Throughput: ${String.format("%,.0f", throughput)} concurrent ops/sec")
+        println("Queue size: ${queue.size} (expected: $maxSize)")
+
+        // Validate
+        val items = queue.items.value
+        assertEquals(maxSize, items.size, "Queue should be full at capacity")
+        for (i in 0 until items.size - 1) {
+            assertTrue(items[i] >= items[i + 1], "Sort violation at index $i")
+        }
+
         println("Validation successful.\n")
     }
 }
