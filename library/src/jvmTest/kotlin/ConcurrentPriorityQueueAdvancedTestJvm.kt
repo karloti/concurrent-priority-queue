@@ -218,7 +218,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         println("%-12s  %12s  %15s  %8s".format("maxSize", "Time", "Throughput", "Depth"))
 
         for (maxSize in sizes) {
-            val queue = ConcurrentPriorityQueue<Int>(maxSize = maxSize)
+            val queue = ConcurrentPriorityQueue<Int>(maxSize = maxSize, reverseOrder())
 
             val time = measureTime {
                 for (i in 0 until insertCount) {
@@ -315,18 +315,16 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         println("=== Test 11: Concurrent Insert Throughput (local=${TestConfig.LOCAL}) ===")
         println("maxSize=$maxSize, coroutines=$coroutineCount, inserts/coroutine=$insertsPerCoroutine")
 
-        val queue = ConcurrentPriorityQueue<Int>(maxSize = maxSize)
+        val queue = ConcurrentPriorityQueue<Int>(maxSize = maxSize, reverseOrder())
 
         val time = measureTime {
-            coroutineScope {
-                repeat(coroutineCount) { coroutineId ->
-                    launch {
-                        repeat(insertsPerCoroutine) {
-                            queue.add(coroutineId)
-                        }
+            List(coroutineCount) { coroutineId ->
+                launch {
+                    repeat(insertsPerCoroutine) {
+                        queue.add(it + coroutineId * insertsPerCoroutine)
                     }
                 }
-            }
+            }.joinAll()
         }
 
         val throughput = totalInserts / time.inWholeMilliseconds.toDouble() * 1000

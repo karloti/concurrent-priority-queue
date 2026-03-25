@@ -26,5 +26,5 @@
  */
 object TestConfig {
     /** Set to `true` for heavy local benchmarks, `false` for lightweight CI runs. */
-    const val LOCAL: Boolean = true
+    const val LOCAL: Boolean = false
 }
