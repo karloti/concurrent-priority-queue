@@ -15,8 +15,8 @@
  */
 
 @file:OptIn(
-    ExperimentalForInheritanceCoroutinesApi::class, ExperimentalCoroutinesApi::class,
-    ExperimentalAtomicApi::class, FlowPreview::class
+    ExperimentalForInheritanceCoroutinesApi::class,
+    ExperimentalAtomicApi::class, ExperimentalCoroutinesApi::class, FlowPreview::class
 )
 @file:Suppress("UNUSED")
 
@@ -27,7 +27,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.concurrent.atomics.AtomicInt
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
@@ -533,16 +536,81 @@ class ConcurrentPriorityQueue<T, K>(
         transform: suspend (S) -> T
     ): Int = withContext(dispatcher) {
         val addedCount = AtomicInt(0)
-        elements
-            .flatMapMerge(parallelism) { source ->
-                flow { emit(transform(source)) }
+        val batchSize = WORKER_BATCH_SIZE
+        val sourceChannel = Channel<S>(capacity = Channel.BUFFERED)
+        coroutineScope {
+            launch {
+                elements.collect { sourceChannel.send(it) }
+                sourceChannel.close()
             }
-            .collect { element ->
-                if (add(element) != null) addedCount.incrementAndFetch()
+
+            repeat(DEFAULT_CONCURRENCY) {
+                launch {
+                    while (true) {
+                        val first = sourceChannel.receiveCatching().getOrNull() ?: break
+                        val batch = ArrayList<S>(batchSize)
+                        batch.add(first)
+                        while (batch.size < batchSize) {
+                            sourceChannel.tryReceive().getOrNull()?.let { batch.add(it) } ?: break
+                        }
+
+                        if (batch.size <= DEFAULT_CONCURRENCY) {
+                            for (source in batch) {
+                                val element = transform(source)
+                                if (add(element) != null) addedCount.incrementAndFetch()
+                            }
+                        } else {
+                            coroutineScope {
+                                for (source in batch) {
+                                    launch {
+                                        val element = transform(source)
+                                        if (add(element) != null) addedCount.incrementAndFetch()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
+        }
         addedCount.load()
     }
 
+    /**
+     * Adds elements from a flow to the queue after applying a synchronous transformation.
+     *
+     * This method collects the [elements] flow sequentially, transforms each element using
+     * the provided [transform] function, and adds the result to the queue.
+     *
+     * ## Example
+     *
+     * ```kotlin
+     * data class Task(val id: String, val priority: Int)
+     * val queue = ConcurrentPriorityQueue<Task, String>(maxSize = 100) { it.id }
+     *
+     * val urls = flowOf("url1", "url2", "url3", "url4", "url5")
+     * val evictedCount = queue.addAll(urls) { url ->
+     *     fetchTaskFromNetwork(url) // Suspending network call
+     * }
+     * println("$evictedCount tasks caused evictions")
+     * ```
+     *
+     * @param S The type of elements in the source flow.
+     * @param elements The source flow to be processed.
+     * @param transform A function to convert source elements of type [S] to queue elements of type [T].
+     * @return The number of elements whose insertion caused an eviction — i.e., the number
+     *   of times [add] returned a non-null displaced element.
+     *
+     * @see addAll(Flow<S>, Int, suspend (S) -> T) For parallel processing of transformations.
+     */
+    override suspend fun <S> addAll(
+        elements: Flow<S>,
+        transform: (S) -> T
+    ): Int = withContext(dispatcher){
+        var addedCount = 0
+        elements.collect { element -> if (add(transform(element)) != null) addedCount++ }
+        addedCount
+    }
 
     /**
      * Returns an iterator over the elements in priority order (highest first).
@@ -603,6 +671,8 @@ class ConcurrentPriorityQueue<T, K>(
     }
 
     companion object {
+        private const val WORKER_BATCH_SIZE = 512
+
         /**
          * Creates a queue for [Comparable] types with a custom identity key.
          *

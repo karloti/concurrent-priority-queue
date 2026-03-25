@@ -19,7 +19,6 @@
 package io.github.karloti.cpq
 
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.DEFAULT_CONCURRENCY
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -200,7 +199,9 @@ interface BoundedPriorityQueue<T, K> {
      */
     suspend fun addAll(elements: Flow<T>): Int
 
-    suspend fun <S> addAll(elements: Flow<S>, parallelism: Int = DEFAULT_CONCURRENCY, transform: suspend (S) -> T): Int
+    suspend fun <S> addAll(elements: Flow<S>, transform: (S) -> T): Int
+
+    suspend fun <S> addAll(elements: Flow<S>, parallelism: Int, transform: suspend (S) -> T): Int
 
     /**
      * Returns an iterator over the elements in priority order (highest first).
