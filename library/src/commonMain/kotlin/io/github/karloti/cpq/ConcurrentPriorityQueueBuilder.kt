@@ -95,7 +95,11 @@ internal class ConcurrentPriorityQueueBuilderImpl<T, K>(
     override val size: Int get() = current.size
 
     override fun build(): ConcurrentPriorityQueue<T, K> {
-        val queue = ConcurrentPriorityQueue(maxSize, comparator, keySelector)
+        val queue = ConcurrentPriorityQueue(
+            maxSize = maxSize,
+            comparator = comparator,
+            uniqueKeySelector = keySelector
+        )
         queue.queueState.value = current
         return queue
     }

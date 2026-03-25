@@ -14,18 +14,24 @@
  * limitations under the License.
  */
 
-@file:OptIn(ExperimentalForInheritanceCoroutinesApi::class, ExperimentalCoroutinesApi::class)
+@file:OptIn(
+    ExperimentalForInheritanceCoroutinesApi::class, ExperimentalCoroutinesApi::class,
+    ExperimentalAtomicApi::class, FlowPreview::class
+)
 @file:Suppress("UNUSED")
 
 package io.github.karloti.cpq
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.FlowCollector
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.withContext
+import kotlin.concurrent.atomics.AtomicInt
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
+import kotlin.concurrent.atomics.incrementAndFetch
 
 /**
  * A concurrent, lock-free, bounded priority queue for Kotlin Multiplatform.
@@ -78,6 +84,7 @@ import kotlinx.coroutines.flow.update
  */
 class ConcurrentPriorityQueue<T, K>(
     private val maxSize: Int = 5,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val comparator: Comparator<T>,
     private val uniqueKeySelector: (T) -> K
 ) : BoundedPriorityQueue<T, K> {
@@ -477,6 +484,67 @@ class ConcurrentPriorityQueue<T, K>(
     }
 
     /**
+     * Adds elements from a flow to the queue with parallel processing and transformation.
+     *
+     * This method transforms elements from the source flow [elements] using the provided
+     * suspending [transform] function with a specified level of [parallelism], then adds
+     * the resulting elements to the queue. Multiple transformations can execute concurrently,
+     * improving throughput when the transform function performs I/O or other async operations.
+     *
+     * The operation uses [kotlinx.coroutines.flow.flatMapMerge] internally to achieve
+     * parallel processing while maintaining ordered collection into the queue.
+     *
+     * ## Thread Safety
+     *
+     * This method is thread-safe and can be called concurrently. The parallel transformations
+     * run on the queue's [dispatcher] (typically [Dispatchers.Default]).
+     *
+     * ## Complexity
+     *
+     * - **Time**: O(m × log n) for queue operations, where m is the number of elements.
+     *   The transformation overhead depends on the [transform] function.
+     * - **Concurrency**: Up to [parallelism] transformations execute simultaneously
+     *
+     * ## Example
+     *
+     * ```kotlin
+     * data class Task(val id: String, val priority: Int)
+     * val queue = ConcurrentPriorityQueue<Task, String>(maxSize = 100) { it.id }
+     *
+     * val urls = flowOf("url1", "url2", "url3", "url4", "url5")
+     * val evictedCount = queue.addAll(urls) { url ->
+     *     fetchTaskFromNetwork(url) // Suspending network call
+     * }
+     * println("$evictedCount tasks caused evictions")
+     * ```
+     *
+     * @param S The type of elements in the source flow.
+     * @param elements The source flow to be processed and added to the queue.
+     * @param parallelism The maximum number of concurrent [transform] invocations.
+     *   Defaults to [DEFAULT_CONCURRENCY] (16). Must be positive.
+     * @param transform A suspending function to convert source elements of type [S]
+     *   to queue elements of type [T].
+     * @return The number of elements whose insertion caused an eviction — i.e., the number
+     *   of times [add] returned a non-null displaced element.
+     */
+    override suspend fun <S> addAll(
+        elements: Flow<S>,
+        parallelism: Int,
+        transform: suspend (S) -> T
+    ): Int = withContext(dispatcher) {
+        val addedCount = AtomicInt(0)
+        elements
+            .flatMapMerge(parallelism) { source ->
+                flow { emit(transform(source)) }
+            }
+            .collect { element ->
+                if (add(element) != null) addedCount.incrementAndFetch()
+            }
+        addedCount.load()
+    }
+
+
+    /**
      * Returns an iterator over the elements in priority order (highest first).
      *
      * The iterator operates on a snapshot of the queue at the time of creation.
@@ -536,11 +604,6 @@ class ConcurrentPriorityQueue<T, K>(
 
     companion object {
         /**
-         * Default parallelism hint for async operations.
-         */
-        const val DEFAULT_PARALLELISM = 4
-
-        /**
          * Creates a queue for [Comparable] types with a custom identity key.
          *
          * Uses **descending order** by default (higher values = higher priority).
@@ -563,9 +626,14 @@ class ConcurrentPriorityQueue<T, K>(
          */
         operator fun <T : Comparable<T>, K> invoke(
             maxSize: Int = 5,
+            comparator: Comparator<T> = naturalOrder(),
             uniqueKeySelector: (T) -> K
         ): ConcurrentPriorityQueue<T, K> {
-            return ConcurrentPriorityQueue(maxSize, reverseOrder(), uniqueKeySelector)
+            return ConcurrentPriorityQueue(
+                maxSize = maxSize,
+                comparator = comparator,
+                uniqueKeySelector = uniqueKeySelector
+            )
         }
 
         /**
@@ -585,14 +653,14 @@ class ConcurrentPriorityQueue<T, K>(
          *
          * @param T Element type (also used as key type).
          * @param maxSize Maximum queue capacity. Defaults to 5.
-         * @param priorityComparator Comparator defining priority order.
+         * @param comparator Comparator defining priority order.
          * @return A new [ConcurrentPriorityQueue] instance.
          */
         operator fun <T> invoke(
             maxSize: Int = 5,
-            priorityComparator: Comparator<T>
+            comparator: Comparator<T>
         ): ConcurrentPriorityQueue<T, T> {
-            return ConcurrentPriorityQueue(maxSize, priorityComparator) { it }
+            return ConcurrentPriorityQueue(maxSize = maxSize, comparator = comparator) { it }
         }
 
         /**
@@ -616,9 +684,10 @@ class ConcurrentPriorityQueue<T, K>(
          * @return A new [ConcurrentPriorityQueue] instance.
          */
         operator fun <T : Comparable<T>> invoke(
-            maxSize: Int = 5
+            maxSize: Int = 5,
+            comparator: Comparator<T> = naturalOrder()
         ): ConcurrentPriorityQueue<T, T> {
-            return ConcurrentPriorityQueue(maxSize, reverseOrder()) { it }
+            return ConcurrentPriorityQueue(maxSize = maxSize, comparator = comparator) { it }
         }
     }
 }

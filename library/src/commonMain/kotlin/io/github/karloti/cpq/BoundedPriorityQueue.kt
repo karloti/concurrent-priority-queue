@@ -14,8 +14,12 @@
  * limitations under the License.
  */
 
+@file:OptIn(FlowPreview::class)
+
 package io.github.karloti.cpq
 
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.DEFAULT_CONCURRENCY
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -195,6 +199,8 @@ interface BoundedPriorityQueue<T, K> {
      * @return the number of elements whose insertion caused an eviction
      */
     suspend fun addAll(elements: Flow<T>): Int
+
+    suspend fun <S> addAll(elements: Flow<S>, parallelism: Int = DEFAULT_CONCURRENCY, transform: suspend (S) -> T): Int
 
     /**
      * Returns an iterator over the elements in priority order (highest first).

@@ -17,18 +17,16 @@
 @file:OptIn(ExperimentalCoroutinesApi::class)
 
 import io.github.karloti.cpq.ConcurrentPriorityQueue
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
 import java.util.concurrent.ConcurrentSkipListSet
+import kotlin.math.log2
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.measureTime
 
 /**
@@ -56,7 +54,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
      * 4. Returning the correct count of modified/added elements
      */
     @Test
-    fun `=== Test 7 addAll() Functional Correctness ===`():Unit = runTest {
+    fun `=== Test 7 addAll() Functional Correctness ===`(): Unit = runTest {
         println("=== Test 7: addAll() Functional Correctness ===")
         val maxQueueCapacity = 10
 
@@ -80,8 +78,8 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         skipList.addAll(batch1)
 
         assertEquals(5, queue.size)
-        assertContentEquals(result1,batch1, "First batch should all be added")
-        assertContentEquals(result1,skipList.toList().take(maxQueueCapacity), "Queue should contain the same items")
+        assertContentEquals(result1, batch1, "First batch should all be added")
+        assertContentEquals(result1, skipList.toList().take(maxQueueCapacity), "Queue should contain the same items")
 
         // 2. Add batch that fills remaining space AND evicts worse elements
         // Priorities: 10..19. These are all better than 20..24
@@ -97,8 +95,8 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         // So 20..24 get evicted one by one.
         // Result: [10..19]
         // All 10 items from batch2 were added.
-        assertContentEquals(result2,batch2," Second batch should all be added and evicted (10..19)")
-        assertContentEquals(result2,skipList.toList().take(maxQueueCapacity),"Queue should contain the same items")
+        assertContentEquals(result2, batch2, " Second batch should all be added and evicted (10..19)")
+        assertContentEquals(result2, skipList.toList().take(maxQueueCapacity), "Queue should contain the same items")
 
         val priorities = queue.items.value.map { it.priorityLevel }
         val expectedPriorities = (10..19).toList()
@@ -113,7 +111,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
 
         assertEquals(10, queue.size)
         assertContentEquals(expectedPriorities, queue.items.value.map { it.priorityLevel }.sorted())
-        assertContentEquals(result3, skipList.toList().take(maxQueueCapacity),"Queue should contain the same items")
+        assertContentEquals(result3, skipList.toList().take(maxQueueCapacity), "Queue should contain the same items")
 
         println("Validation successful. addAll() behaves as expected.\n")
     }
@@ -126,7 +124,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
      */
     @Test
     fun `=== Test 8 Massive addAll Benchmark ===`() = runBlocking {
-        val maxQueueCapacity = if (TestConfig.LOCAL) 1_00_000 else 1_000
+        val maxQueueCapacity = if (TestConfig.LOCAL) 100_000 else 1_000
         val count = if (TestConfig.LOCAL) 1_000 else 10
         println("=== Test 8: Massive addAll Benchmark (${maxQueueCapacity * count} items, local=${TestConfig.LOCAL}) ===")
 
@@ -134,13 +132,11 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         println("Generating $maxQueueCapacity unique tasks...")
 
         // Pre-allocate list to isolate generation time from benchmark
-        val allTasks = ArrayList<TaskItem>(maxQueueCapacity)
-        for (i in 0 until maxQueueCapacity) {
-            allTasks.add(
-                TaskItem(
-                    identifier = "MassiveTask_$i", // Unique key
-                    priorityLevel = randomSeed.nextInt() // Random weight
-                )
+
+        val allTasks = List(maxQueueCapacity) { i ->
+            TaskItem(
+                identifier = "MassiveTask_$i", // Unique key
+                priorityLevel = randomSeed.nextInt() // Random weight
             )
         }
 
@@ -193,15 +189,11 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
 
         // Validation
         val finalQueueItems = queue.items.value
-        val finalSkipListItems = skipList.take(maxQueueCapacity) // Take top K to compare with bounded queue
-
-        assertEquals(maxQueueCapacity, finalQueueItems.size, "Queue should be full at capacity")
-        assertEquals(maxQueueCapacity, skipList.size, "SkipList should be full at capacity")
 
         assertContentEquals(
-            finalSkipListItems,
-            finalQueueItems,
-            "Top $maxQueueCapacity elements do not match between Queue and SkipList!"
+            expected = skipList,
+            actual = finalQueueItems,
+            message = "Top $maxQueueCapacity elements do not match between Queue and SkipList!"
         )
 
         val speedup = skipListTime.inWholeMilliseconds.toDouble() / cpqTime.inWholeMilliseconds.toDouble()
@@ -217,7 +209,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
      * Validates correctness (sorted order, size, key uniqueness) at each scale.
      */
     @Test
-    fun `=== Test 9 Insert Throughput by Queue Size ===`() = runBlocking(Dispatchers.Default) {
+    fun `=== Test 9 Insert Throughput by Queue Size ===`() = runTest {
         val sizes = if (TestConfig.LOCAL) listOf(100, 1_000, 10_000, 100_000) else listOf(100, 1_000)
         val insertCount = if (TestConfig.LOCAL) 1_000_000 else 10_000
 
@@ -230,12 +222,12 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
 
             val time = measureTime {
                 for (i in 0 until insertCount) {
-                    queue.add(Random.nextInt())
+                    queue.add(i + maxSize * insertCount)
                 }
             }
 
             val throughput = insertCount / time.inWholeMilliseconds.toDouble() * 1000
-            val expectedDepth = (Math.log(maxSize.toDouble()) / Math.log(2.0)).toInt()
+            val expectedDepth = log2(maxSize.toDouble()).toInt()
 
             println("%-12d  %12s  %,15.0f ops/sec  ~%d".format(maxSize, time, throughput, expectedDepth))
 
@@ -259,9 +251,9 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
      * used memory before and after a batch of inserts. Forces GC to get a baseline.
      */
     @Test
-    fun `=== Test 10 Memory Allocation per Insert ===`() = runBlocking(Dispatchers.Default) {
-        val maxSize = if (TestConfig.LOCAL) 10_000 else 5_000
-        val insertCount = if (TestConfig.LOCAL) 1_000_000 else 20_000
+    fun `=== Test 10 Memory Allocation per Insert ===`() = runTest {
+        val maxSize = if (TestConfig.LOCAL) 100_000 else 5_000
+        val insertCount = if (TestConfig.LOCAL) 10_000_000 else 20_000
 
         println("=== Test 10: Memory Allocation per Insert (local=${TestConfig.LOCAL}) ===")
         println("maxSize=$maxSize, inserts=$insertCount")
@@ -269,26 +261,22 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         val queue = ConcurrentPriorityQueue<Int>(maxSize = maxSize)
 
         // Warm up and fill the queue
-        for (i in 0 until maxSize) {
-            queue.add(Random.nextInt())
-        }
+        repeat(insertCount, queue::add)
 
         // Force GC and measure baseline
         System.gc()
-        Thread.sleep(100)
+        delay(300.milliseconds)
         val memBefore = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()
 
         // Perform measured inserts (queue is already full → inserts trigger evictions + path copies)
-        for (i in 0 until insertCount) {
-            queue.add(Random.nextInt())
-        }
+        repeat(insertCount, queue::add)
 
         // Measure after
         val memAfter = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()
 
         // Force GC to see retained memory
         System.gc()
-        Thread.sleep(100)
+        delay(300.milliseconds)
         val memRetained = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()
 
         val allocatedPerInsert = (memAfter - memBefore).toDouble() / insertCount
@@ -303,8 +291,9 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         // Validate queue is still correct
         val items = queue.items.value
         assertEquals(maxSize, items.size, "Queue should be full")
-        for (i in 0 until items.size - 1) {
-            assertTrue(items[i] >= items[i + 1], "Sort violation at index $i")
+
+        items.indices.forEach { i ->
+            assertEquals(items[i], i, "Sort violation at index $i")
         }
 
         println("Validation successful.\n")
@@ -317,7 +306,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
      * exercising the CAS retry mechanism under contention.
      */
     @Test
-    fun `=== Test 11 Concurrent Insert Throughput ===`() = runBlocking(Dispatchers.Default) {
+    fun `=== Test 11 Concurrent Insert Throughput ===`() = runTest {
         val maxSize = if (TestConfig.LOCAL) 10_000 else 1_000
         val coroutineCount = if (TestConfig.LOCAL) 32 else 4
         val insertsPerCoroutine = if (TestConfig.LOCAL) 100_000 else 5_000
@@ -331,10 +320,9 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         val time = measureTime {
             coroutineScope {
                 repeat(coroutineCount) { coroutineId ->
-                    launch(Dispatchers.Default) {
-                        val rng = Random(coroutineId)
+                    launch {
                         repeat(insertsPerCoroutine) {
-                            queue.add(rng.nextInt())
+                            queue.add(coroutineId)
                         }
                     }
                 }

@@ -24,7 +24,7 @@ plugins {
     alias(libs.plugins.vanniktech.mavenPublish)
 }
 group = "io.github.karloti"
-version = "1.3.0"
+version = "1.3.1"
 
 kotlin {
     // JVM
@@ -93,7 +93,6 @@ kotlin {
         // To build distributions for and run tests use one or several of:
         browser()
         nodejs()
-//        d8()
     }
     wasmWasi {
         // To build distributions for and run tests use one or several of:
@@ -146,12 +145,6 @@ mavenPublishing {
         }
     }
 }
-
-/*
-extensions.configure<SigningExtension> {
-    useGpgCmd()
-    sign(publishing.publications)
-}*/
 
 /*
 tasks.register("createMissingSourceDirs") {
