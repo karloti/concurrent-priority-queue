@@ -685,9 +685,8 @@ class ConcurrentPriorityQueue<T, K>(
          */
         operator fun <T : Comparable<T>> invoke(
             maxSize: Int = 5,
-            comparator: Comparator<T> = naturalOrder()
         ): ConcurrentPriorityQueue<T, T> {
-            return ConcurrentPriorityQueue(maxSize = maxSize, comparator = comparator) { it }
+            return ConcurrentPriorityQueue(maxSize = maxSize, comparator = naturalOrder()) { it }
         }
     }
 }
