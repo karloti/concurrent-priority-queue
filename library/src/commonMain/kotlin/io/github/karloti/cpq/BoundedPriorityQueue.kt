@@ -181,6 +181,9 @@ interface BoundedPriorityQueue<T, K> {
      */
     fun addAll(elements: Iterable<T>): List<T>
 
+    fun <S> addAll(elements: Iterable<S>, transform: (S) -> T): Int
+
+
     /**
      * Adds all elements from the given sequence to the queue.
      *

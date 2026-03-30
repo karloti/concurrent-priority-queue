@@ -437,6 +437,33 @@ class ConcurrentPriorityQueue<T, K>(
     }
 
     /**
+     * Adds all elements from the given iterable collection to the queue after applying a transformation.
+     *
+     * Elements are transformed and added one by one, following the same rules as [add]:
+     * - Duplicate keys are handled via upsert semantics
+     * - Lowest priority elements are evicted if capacity is exceeded
+     *
+     * ## Complexity
+     *
+     * - **Time**: O(m × log n) where m is the number of elements to add
+     *
+     * @param S The type of elements in the source collection.
+     * @param elements The iterable collection of elements to be transformed and added.
+     * @param transform A function to convert source elements of type [S] to queue elements of type [T].
+     * @return The number of elements whose insertion caused an eviction — i.e., the number
+     *   of times [add] returned a non-null displaced element.
+     */
+    override fun <S> addAll(elements: Iterable<S>, transform: (S) -> T): Int {
+        var addedCount = 0
+        for (element in elements) {
+            if (add(transform(element)) != null) {
+                addedCount++
+            }
+        }
+        return addedCount
+    }
+
+    /**
      * Adds all elements from the given sequence to the queue.
      *
      * Elements are added one by one, following the same rules as [add]:
