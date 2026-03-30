@@ -511,7 +511,6 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         val count = if (LOCAL) 200 else 20
         val evictions = queue.addAll(
             elements = (1..count).asFlow(),
-            parallelism = DEFAULT_CONCURRENCY,
         ) { value ->
             delay(1.milliseconds) // simulate async I/O
             value
@@ -554,7 +553,6 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         val sequentialTime = measureTime {
             queue1.addAll(
                 elements = (1..count).asFlow(),
-                parallelism = DEFAULT_CONCURRENCY,
             ) { value ->
                 delay(delayMs.milliseconds)
                 value
@@ -566,8 +564,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         // Parallel (parallelism = count) should be faster
         val parallelTime = measureTime {
             queue2.addAll(
-                elements = (1..count).asFlow(),
-                parallelism = DEFAULT_CONCURRENCY
+                elements = (1..count).asFlow()
             ) { value ->
                 delay(delayMs.milliseconds)
                 value
@@ -679,7 +676,6 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
                         launch {
                             queue.addAll(
                                 elements = (0 until elementsPerProducer).asFlow(),
-                                parallelism = parallelism!!,
                             ) { i ->
                                 val taskItem = TaskItem(
                                     identifier = "P${producerId}_T$i",

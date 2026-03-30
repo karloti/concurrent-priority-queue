@@ -463,6 +463,32 @@ class ConcurrentPriorityQueue<T, K>(
     }
 
     /**
+     * Adds all elements from the given sequence to the queue after applying a transformation.
+     *
+     * Elements are transformed and added one by one, following the same rules as [add]:
+     * - Duplicate keys are handled via upsert semantics
+     * - Lowest priority elements are evicted if capacity is exceeded
+     *
+     * ## Complexity
+     *
+     * - **Time**: O(m × log n) where m is the number of elements to add
+     *
+     * @param S The type of elements in the source sequence.
+     * @param elements The sequence of elements to be transformed and added.
+     * @param transform A function to convert source elements of type [S] to queue elements of type [T].
+     * @return The number of elements whose insertion caused an eviction.
+     */
+    override fun <S> addAll(elements: Sequence<S>, transform: (S) -> T): Int {
+        var addedCount = 0
+        for (element in elements) {
+            if (add(transform(element)) != null) {
+                addedCount++
+            }
+        }
+        return addedCount
+    }
+
+    /**
      * Adds all elements from the given flow to the queue.
      *
      * Elements are added one by one as they are emitted by the flow, following the same rules as [add].
@@ -523,7 +549,6 @@ class ConcurrentPriorityQueue<T, K>(
      *
      * @param S The type of elements in the source flow.
      * @param elements The source flow to be processed and added to the queue.
-     * @param parallelism The maximum number of concurrent [transform] invocations.
      *   Defaults to [DEFAULT_CONCURRENCY] (16). Must be positive.
      * @param transform A suspending function to convert source elements of type [S]
      *   to queue elements of type [T].
@@ -532,7 +557,6 @@ class ConcurrentPriorityQueue<T, K>(
      */
     override suspend fun <S> addAll(
         elements: Flow<S>,
-        parallelism: Int,
         transform: suspend (S) -> T
     ): Int = withContext(dispatcher) {
         val addedCount = AtomicInt(0)
@@ -574,42 +598,6 @@ class ConcurrentPriorityQueue<T, K>(
             }
         }
         addedCount.load()
-    }
-
-    /**
-     * Adds elements from a flow to the queue after applying a synchronous transformation.
-     *
-     * This method collects the [elements] flow sequentially, transforms each element using
-     * the provided [transform] function, and adds the result to the queue.
-     *
-     * ## Example
-     *
-     * ```kotlin
-     * data class Task(val id: String, val priority: Int)
-     * val queue = ConcurrentPriorityQueue<Task, String>(maxSize = 100) { it.id }
-     *
-     * val urls = flowOf("url1", "url2", "url3", "url4", "url5")
-     * val evictedCount = queue.addAll(urls) { url ->
-     *     fetchTaskFromNetwork(url) // Suspending network call
-     * }
-     * println("$evictedCount tasks caused evictions")
-     * ```
-     *
-     * @param S The type of elements in the source flow.
-     * @param elements The source flow to be processed.
-     * @param transform A function to convert source elements of type [S] to queue elements of type [T].
-     * @return The number of elements whose insertion caused an eviction — i.e., the number
-     *   of times [add] returned a non-null displaced element.
-     *
-     * @see addAll(Flow<S>, Int, suspend (S) -> T) For parallel processing of transformations.
-     */
-    override suspend fun <S> addAll(
-        elements: Flow<S>,
-        transform: (S) -> T
-    ): Int = withContext(dispatcher){
-        var addedCount = 0
-        elements.collect { element -> if (add(transform(element)) != null) addedCount++ }
-        addedCount
     }
 
     /**

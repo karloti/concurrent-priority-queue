@@ -189,6 +189,8 @@ interface BoundedPriorityQueue<T, K> {
      */
     fun addAll(elements: Sequence<T>): Int
 
+    fun <S> addAll(elements: Sequence<S>, transform: (S) -> T): Int
+
     /**
      * Adds all elements from the given flow to the queue.
      *
@@ -199,9 +201,7 @@ interface BoundedPriorityQueue<T, K> {
      */
     suspend fun addAll(elements: Flow<T>): Int
 
-    suspend fun <S> addAll(elements: Flow<S>, transform: (S) -> T): Int
-
-    suspend fun <S> addAll(elements: Flow<S>, parallelism: Int, transform: suspend (S) -> T): Int
+    suspend fun <S> addAll(elements: Flow<S>, transform: suspend (S) -> T): Int
 
     /**
      * Returns an iterator over the elements in priority order (highest first).
