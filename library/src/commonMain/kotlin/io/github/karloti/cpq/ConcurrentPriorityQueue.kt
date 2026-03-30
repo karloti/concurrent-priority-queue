@@ -516,7 +516,7 @@ class ConcurrentPriorityQueue<T, K>(
      * Adds elements from a flow to the queue with parallel processing and transformation.
      *
      * This method transforms elements from the source flow [elements] using the provided
-     * suspending [transform] function with a specified level of [parallelism], then adds
+     * suspending [transform] function, then adds
      * the resulting elements to the queue. Multiple transformations can execute concurrently,
      * improving throughput when the transform function performs I/O or other async operations.
      *
@@ -532,7 +532,6 @@ class ConcurrentPriorityQueue<T, K>(
      *
      * - **Time**: O(m × log n) for queue operations, where m is the number of elements.
      *   The transformation overhead depends on the [transform] function.
-     * - **Concurrency**: Up to [parallelism] transformations execute simultaneously
      *
      * ## Example
      *
