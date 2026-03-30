@@ -652,13 +652,14 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
      */
     @Test
     fun `=== Test 19 addAll Flow transform concurrent producers ===`() = runTest(timeout = 1.minutes) {
-        val maxQueueCapacity = if (LOCAL) 10_000 else 500
-        val producerCount = if (LOCAL) 8 else 2
-        val elementsPerProducer = if (LOCAL) 50_000 else 2_000
-        val parallelism = if (LOCAL) 8 else 2
+        val maxQueueCapacity = if (LOCAL) 1_000 else 500
+        val producerCount = if (LOCAL) 4 else 2
+        val elementsPerProducer = if (LOCAL) 10_000 else 2_000
+        val parallelism = if (LOCAL) DEFAULT_CONCURRENCY else 1
+        val delayDuration = if (LOCAL) 10.milliseconds.inWholeMilliseconds else null
 
         println("=== Test 19: addAll(Flow, transform) concurrent producers (local=${LOCAL}) ===")
-        println("maxSize=$maxQueueCapacity, producers=$producerCount, elements/producer=$elementsPerProducer, parallelism=$parallelism")
+        println("maxSize=$maxQueueCapacity, producers=$producerCount, elements/producer=$elementsPerProducer, parallelism=$parallelism, delay=$delayDuration ms")
 
         val deterministicComparator = Comparator<TaskItem> { first, second ->
             val priorityComparison = first.priorityLevel.compareTo(second.priorityLevel)
@@ -672,18 +673,39 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         )
 
         val time = measureTime {
-            List(producerCount) { producerId ->
-                launch {
-                    queue.addAll(
-                        elements = (0 until elementsPerProducer).asFlow()
-                    ) { i ->
-                        TaskItem(
-                            identifier = "P${producerId}_T$i",
-                            priorityLevel = i + producerId * elementsPerProducer
-                        )
-                    }
+            when {
+                delayDuration != null && delayDuration > 0 -> {
+                    List(producerCount) { producerId ->
+                        launch {
+                            queue.addAll(
+                                elements = (0 until elementsPerProducer).asFlow(),
+                                parallelism = parallelism!!,
+                            ) { i ->
+                                val taskItem = TaskItem(
+                                    identifier = "P${producerId}_T$i",
+                                    priorityLevel = i + producerId * elementsPerProducer
+                                )
+                                Thread.sleep(delayDuration)
+                                taskItem
+                            }
+                        }
+                    }.joinAll()
                 }
-            }.joinAll()
+                else -> {
+                    List(producerCount) { producerId ->
+                        launch {
+                            queue.addAll(
+                                elements = (0 until elementsPerProducer).asFlow(),
+                            ) { i ->
+                                TaskItem(
+                                    identifier = "P${producerId}_T$i",
+                                    priorityLevel = i + producerId * elementsPerProducer
+                                )
+                            }
+                        }
+                    }.joinAll()
+                }
+            }
         }
 
         val totalElements = producerCount * elementsPerProducer
