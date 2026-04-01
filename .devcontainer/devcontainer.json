@@ -5,7 +5,7 @@
     "ghcr.io/devcontainers/features/python:1": {
       "installTools": true
     },
-    "ghcr.io/devcontainers/features/android:1": {}
+    "ghcr.io/devcontainers-contrib/features/android-sdk:1": {}
   },
   "customizations": {
     "codespaces": {
