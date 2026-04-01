@@ -1,0 +1,23 @@
+{
+  "name": "KMP Library Environment",
+  "image": "mcr.microsoft.com/devcontainers/java:17",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "installTools": true
+    }
+  },
+  "postCreateCommand": "pip install jupyter kotlin-jupyter-kernel && ./gradlew publishToMavenLocal",
+  "customizations": {
+    "codespaces": {
+      "openFiles": [
+        "basic_usage.ipynb"
+      ]
+    },
+    "vscode": {
+      "extensions": [
+        "ms-toolsai.jupyter",
+        "mathiasfrohlich.Kotlin"
+      ]
+    }
+  },
+}

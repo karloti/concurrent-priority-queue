@@ -56,6 +56,7 @@ queue.add(100) // Rejected — larger than all current top 5
 
 println(queue.items.value)  // [1, 5, 10, 20, 50]
 ```
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/karloti/concurrent-priority-queue)
 
 ### Custom Rankings (Max-Priority)
 
@@ -77,6 +78,7 @@ queue.add(SearchResult("C", 15))
 println(queue.items.value)
 // [SearchResult(id=A, score=30), SearchResult(id=B, score=20), SearchResult(id=C, score=15)]
 ```
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/karloti/concurrent-priority-queue)
 
 ### Task Scheduling
 
@@ -95,6 +97,7 @@ taskQueue.add(Task("critical-fix", 1735603200))
 println(taskQueue.first())  // Task(id=critical-fix, ...)
 val next = taskQueue.poll() // Removes and returns the highest priority task
 ```
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/karloti/concurrent-priority-queue)
 
 ### Reactive UI with Jetpack Compose
 
@@ -110,6 +113,7 @@ fun LeaderboardScreen(queue: ConcurrentPriorityQueue<Score, String>) {
     }
 }
 ```
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/karloti/concurrent-priority-queue)
 
 ### Batch Mutations with Builder
 
@@ -124,6 +128,7 @@ val updated = queue.mutate {
 }
 // `updated` is a new ConcurrentPriorityQueue with all changes applied
 ```
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/karloti/concurrent-priority-queue)
 
 ### Bulk Operations and Filtering
 
@@ -155,7 +160,7 @@ val nextTask = queue.poll()  // Task(id=task-2, priority=5)
 // Clear all remaining
 queue.clear()
 ```
-
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/karloti/concurrent-priority-queue)
 ---
 
 ## Architecture
