@@ -160,6 +160,7 @@ val nextTask = queue.poll()  // Task(id=task-2, priority=5)
 // Clear all remaining
 queue.clear()
 ```
+
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/karloti/concurrent-priority-queue)
 ---
 
