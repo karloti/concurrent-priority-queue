@@ -30,22 +30,28 @@ kotlin {
     // JVM
     jvm()
 
+    val hasAndroidSdk = System.getenv("ANDROID_HOME") != null || File(rootDir, "local.properties").exists()
+
     // Android
-    android {
-        namespace = "io.github.karloti.cpq"
-        compileSdk = libs.versions.android.compileSdk.get().toInt()
-        minSdk = libs.versions.android.minSdk.get().toInt()
+    if (hasAndroidSdk) {
+        android {
+            namespace = "io.github.karloti.cpq"
+            compileSdk = libs.versions.android.compileSdk.get().toInt()
+            minSdk = libs.versions.android.minSdk.get().toInt()
 
-        withJava() // enable java compilation support
-        withHostTestBuilder {}.configure {}
-        withDeviceTestBuilder {
-            sourceSetTreeName = "test"
-        }
+            withJava() // enable java compilation support
+            withHostTestBuilder {}.configure {}
+            withDeviceTestBuilder {
+                sourceSetTreeName = "test"
+            }
 
-        compilations.configureEach {
-            compileTaskProvider.configure {
+            compilations.configureEach {
+                compileTaskProvider.configure {
+                }
             }
         }
+    } else {
+        println("⚠️ Android SDK not found. Skipping Android target configuration.")
     }
 
     // iOS
