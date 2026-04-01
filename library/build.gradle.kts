@@ -20,39 +20,27 @@ import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.android.kotlin.multiplatform.library)
+//    alias(libs.plugins.android.kotlin.multiplatform.library)
     alias(libs.plugins.vanniktech.mavenPublish)
 }
+
 group = "io.github.karloti"
 version = "1.3.5"
+
+val isCodespace = System.getenv("CODESPACES") == "true"
+val hasAndroidSdk = System.getenv("ANDROID_HOME") != null || File(rootDir, "local.properties").exists()
+val shouldConfigureAndroid = hasAndroidSdk && !isCodespace
+
+if (shouldConfigureAndroid) {
+    apply(plugin = libs.plugins.android.kotlin.multiplatform.library.get().pluginId)
+    apply(from = "android-setup.gradle")
+} else {
+    println("⚠️ Android SDK not found. Skipping Android target configuration.")
+}
 
 kotlin {
     // JVM
     jvm()
-
-    val hasAndroidSdk = System.getenv("ANDROID_HOME") != null || File(rootDir, "local.properties").exists()
-
-    // Android
-    if (hasAndroidSdk) {
-        android {
-            namespace = "io.github.karloti.cpq"
-            compileSdk = libs.versions.android.compileSdk.get().toInt()
-            minSdk = libs.versions.android.minSdk.get().toInt()
-
-            withJava() // enable java compilation support
-            withHostTestBuilder {}.configure {}
-            withDeviceTestBuilder {
-                sourceSetTreeName = "test"
-            }
-
-            compilations.configureEach {
-                compileTaskProvider.configure {
-                }
-            }
-        }
-    } else {
-        println("⚠️ Android SDK not found. Skipping Android target configuration.")
-    }
 
     // iOS
     iosX64()
