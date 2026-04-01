@@ -20,5 +20,5 @@
     }
   },
   "updateContentCommand": "sudo /usr/local/python/current/bin/python -m pip install jupyter kotlin-jupyter-kernel --break-system-packages --ignore-installed && sudo /usr/local/python/current/bin/python -m kotlin_kernel fix-kernelspec-location",
-  "postCreateCommand": "./gradlew publishToMavenLocal",
+  "postCreateCommand": "./gradlew publishToMavenLocal -Psigning.required=false",
 }
