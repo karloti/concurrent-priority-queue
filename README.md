@@ -2,7 +2,7 @@
 
 # Concurrent Priority Queue for Kotlin Multiplatform
 
-A high-performance, **lock-free**, **bounded** priority queue for Kotlin Multiplatform. Built on a persistent [Treap](https://en.wikipedia.org/wiki/Treap) data structure with `MutableStateFlow` for thread-safe atomic updates via CAS (Compare-And-Swap). Designed for concurrent environments where many coroutines or threads insert, update, and remove elements simultaneously — without blocking.
+A high-performance, **lock-free**, **bounded** priority queue for Kotlin Multiplatform. Built on a persistent [Treap](https://en.wikipedia.org/wiki/Treap) data structure combined with `MutableStateFlow` for thread-safe atomic updates via CAS (Compare-And-Swap). Designed for concurrent environments where many coroutines or threads insert, update, and remove elements simultaneously — without blocking.
 
 ![Badge: Kotlin Multiplatform](https://img.shields.io/badge/Kotlin-Multiplatform-7f52ff?logo=kotlin)
 [![GitHub license](https://img.shields.io/github/license/kotlin/kotlinx.collections.immutable)](LICENSE)
@@ -14,13 +14,13 @@ A high-performance, **lock-free**, **bounded** priority queue for Kotlin Multipl
 ## Key Features
 
 - **Lock-Free Concurrency** — Uses `MutableStateFlow.update()` with CAS for non-blocking atomic updates. No mutexes, no locks, no deadlocks.
-- **Persistent Treap** — O(log n) insert, remove, and access with structural sharing. Old and new states share most of their tree nodes, making copy-on-write efficient.
-- **Bounded Capacity** — Automatically evicts the lowest-priority elements when `maxSize` is exceeded. No manual trimming needed.
-- **Built-in Deduplication (Upsert)** — A unique key selector prevents duplicates. If a key already exists, the element is updated only when the new one has strictly better priority.
+- **Persistent Treap** — O(log n) insert, remove, and access with structural sharing. Old and new states share most of their nodes, ensuring efficient memory usage.
+- **Bounded Capacity** — Automatically evicts the lowest-priority elements when `maxSize` is reached.
+- **Built-in Deduplication (Upsert)** — A unique key selector prevents duplicates. If a key already exists, the element is updated only if the new one has strictly better priority.
 - **Reactive State** — Exposes `StateFlow<List<T>>` for seamless UI binding with Jetpack Compose, SwiftUI, or any reactive framework.
 - **O(1) Key Lookup** — Internal persistent hash map enables constant-time element retrieval by key.
-- **Builder Pattern** — Batch modifications via `builder()` / `mutate {}` without CAS overhead per operation.
-- **True Multiplatform** — JVM, Android, iOS, macOS, Linux, Windows, watchOS, tvOS, JavaScript, WebAssembly.
+- **Batch Mutations** — High-performance modifications via `builder()` or `mutate { ... }` that bypass per-operation CAS overhead.
+- **True Multiplatform** — Supports JVM, Android, iOS, macOS, Linux, Windows, watchOS, tvOS, JavaScript, and WebAssembly.
 
 ---
 
@@ -29,33 +29,35 @@ A high-performance, **lock-free**, **bounded** priority queue for Kotlin Multipl
 ```kotlin
 // build.gradle.kts
 commonMain.dependencies {
-    implementation("io.github.karloti:concurrent-priority-queue:1.3.4")  // <- Use latest version
+    implementation("io.github.karloti:concurrent-priority-queue:1.3.5")  // <- Use latest version
 }
 ```
 
-The library transitively provides `kotlinx-coroutines-core` (via `api` scope), so you do not need to declare it separately for `StateFlow` and `Flow` types.
+The library transitively provides `kotlinx-coroutines-core`, so you don't need to declare it separately for `StateFlow` and `Flow` types.
 
 ---
 
 ## Quick Start
 
-### Basic Usage — Top-K Elements
+### Basic Usage — Top-K Smallest Elements (Default)
+
+By default, the queue uses **natural order** (ascending), meaning smaller values have higher priority.
 
 ```kotlin
-// Keep the top 5 highest integers (descending order by default)
+// Keep the 5 smallest integers (min-priority queue)
 val queue = ConcurrentPriorityQueue<Int>(maxSize = 5)
 
 queue.add(10)
 queue.add(50)
 queue.add(20)
 queue.add(5)
-queue.add(100)
-queue.add(1)   // Rejected — worse than all top 5
+queue.add(1)
+queue.add(100) // Rejected — larger than all current top 5
 
-println(queue.items.value)  // [100, 50, 20, 10, 5]
+println(queue.items.value)  // [1, 5, 10, 20, 50]
 ```
 
-### Custom Data Classes with Deduplication
+### Custom Rankings (Max-Priority)
 
 ```kotlin
 data class SearchResult(val id: String, val score: Int)
@@ -63,36 +65,35 @@ data class SearchResult(val id: String, val score: Int)
 val queue = ConcurrentPriorityQueue<SearchResult, String>(
     maxSize = 3,
     comparator = compareByDescending { it.score },  // Higher score = higher priority
-    uniqueKeySelector = { it.id }                   // Deduplicate by ID
+    uniqueKeySelector = { it.id }
 )
 
 queue.add(SearchResult("A", 10))
 queue.add(SearchResult("B", 20))
-queue.add(SearchResult("A", 30))  // Updates "A" to score=30 (better priority)
-queue.add(SearchResult("A", 5))   // Ignored — existing score=30 is better
+queue.add(SearchResult("A", 30))  // Updates "A" to score 30 (better priority)
+queue.add(SearchResult("A", 5))   // Rejected — existing score 30 is better
 queue.add(SearchResult("C", 15))
 
 println(queue.items.value)
 // [SearchResult(id=A, score=30), SearchResult(id=B, score=20), SearchResult(id=C, score=15)]
 ```
 
-### Min-Heap / Task Scheduling
+### Task Scheduling
 
 ```kotlin
-data class Task(val id: String, val priority: Int)
+data class Task(val id: String, val deadline: Long)
 
 val taskQueue = ConcurrentPriorityQueue<Task, String>(
     maxSize = 100,
-    comparator = compareBy { it.priority },  // Lower number = higher priority
+    comparator = compareBy { it.deadline },  // Earlier deadline = higher priority
     uniqueKeySelector = { it.id }
 )
 
-taskQueue.add(Task("email", 50))
-taskQueue.add(Task("backup", 100))
-taskQueue.add(Task("critical", 1))
+taskQueue.add(Task("backup", 1735689600))
+taskQueue.add(Task("critical-fix", 1735603200))
 
-println(taskQueue.first())  // Task(id=critical, priority=1)
-val next = taskQueue.poll() // Removes and returns Task(id=critical, priority=1)
+println(taskQueue.first())  // Task(id=critical-fix, ...)
+val next = taskQueue.poll() // Removes and returns the highest priority task
 ```
 
 ### Reactive UI with Jetpack Compose
@@ -265,7 +266,7 @@ ConcurrentPriorityQueue<T, K>(
 ### Factory Methods
 
 ```kotlin
-// For Comparable types (descending order, element is its own key)
+// For Comparable types
 ConcurrentPriorityQueue<Int>(maxSize = 10)
 
 // Custom comparator (element is its own key)

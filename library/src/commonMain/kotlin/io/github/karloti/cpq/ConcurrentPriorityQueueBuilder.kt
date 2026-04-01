@@ -16,6 +16,8 @@
 
 package io.github.karloti.cpq
 
+import kotlin.reflect.KType
+
 /**
  * A mutable builder for [ConcurrentPriorityQueue].
  *
@@ -85,6 +87,8 @@ interface ConcurrentPriorityQueueBuilder<T, K> : PriorityBuilder<T, K> {
  */
 internal class ConcurrentPriorityQueueBuilderImpl<T, K>(
     private val maxSize: Int,
+    private val typeT: KType,
+    private val typeK: KType,
     private val comparator: Comparator<T>,
     private val keySelector: (T) -> K,
     initial: TreapPriorityList<T, K>
@@ -97,8 +101,10 @@ internal class ConcurrentPriorityQueueBuilderImpl<T, K>(
     override fun build(): ConcurrentPriorityQueue<T, K> {
         val queue = ConcurrentPriorityQueue(
             maxSize = maxSize,
+            typeT = typeT,
+            typeK = typeK,
             comparator = comparator,
-            uniqueKeySelector = keySelector
+            keySelector = keySelector
         )
         queue.queueState.value = current
         return queue

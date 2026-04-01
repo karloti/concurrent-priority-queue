@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * A bounded, mutable priority queue with key-based deduplication.
  *
- * Elements are maintained in sorted order defined by a comparator. Each element
+ * Elements are maintained in sorted order defined by a [Comparator]. Each element
  * is uniquely identified by a key; inserting an element whose key already exists
  * performs an **upsert** — the existing element is replaced only if the new one
  * has strictly higher priority.
@@ -33,11 +33,20 @@ import kotlinx.coroutines.flow.StateFlow
  * When the queue reaches its maximum capacity, lower-priority elements are
  * automatically evicted to make room for higher-priority insertions.
  *
- * ### Reactive state
+ * ### Reactive State
  *
- * The current contents are observable via [items], which exposes a
- * `StateFlow<List<T>>` suitable for UI binding (e.g., Jetpack Compose
- * `collectAsState()`).
+ * The current contents are observable via [items], which exposes a [StateFlow]
+ * of [List] suitable for UI binding (e.g., Jetpack Compose `collectAsState()`).
+ *
+ * ### Example
+ *
+ * ```kotlin
+ * val queue: BoundedPriorityQueue<Task, String> = ConcurrentPriorityQueue(maxSize = 10, ...)
+ * queue.add(Task(id = "1", priority = 5))
+ *
+ * // Observe changes in Compose
+ * val tasks by queue.items.collectAsState()
+ * ```
  *
  * @param T the type of elements held in the queue
  * @param K the type of the unique identity key for deduplication
@@ -67,7 +76,7 @@ interface BoundedPriorityQueue<T, K> {
      *   `null` is returned.
      * - If the key doesn't exist but the queue is full: the element replaces the
      *   lowest-priority element if it has strictly better priority; the evicted
-     *   element is returned. Otherwise the element is rejected and `null` is
+     *   element is returned. Otherwise, the element is rejected and `null` is
      *   returned.
      * - If the key exists with worse priority: the element replaces the existing
      *   one, `null` is returned.
@@ -181,17 +190,32 @@ interface BoundedPriorityQueue<T, K> {
      */
     fun addAll(elements: Iterable<T>): List<T>
 
+    /**
+     * Transforms and adds all elements from the given iterable to the queue.
+     *
+     * @param S the type of elements in the source collection
+     * @param elements the source elements to transform and add
+     * @param transform a function that converts source elements to queue elements
+     * @return the number of elements whose insertion caused an eviction
+     */
     fun <S> addAll(elements: Iterable<S>, transform: (S) -> T): Int
-
 
     /**
      * Adds all elements from the given sequence to the queue.
      *
      * @param elements the sequence of elements to add
-     * @return the number of elements processed without causing an eviction
+     * @return the number of elements whose insertion caused an eviction
      */
     fun addAll(elements: Sequence<T>): Int
 
+    /**
+     * Transforms and adds all elements from the given sequence to the queue.
+     *
+     * @param S the type of elements in the source sequence
+     * @param elements the source elements to transform and add
+     * @param transform a function that converts source elements to queue elements
+     * @return the number of elements whose insertion caused an eviction
+     */
     fun <S> addAll(elements: Sequence<S>, transform: (S) -> T): Int
 
     /**
@@ -204,6 +228,16 @@ interface BoundedPriorityQueue<T, K> {
      */
     suspend fun addAll(elements: Flow<T>): Int
 
+    /**
+     * Transforms and adds all elements from the given flow to the queue.
+     *
+     * Suspends until the flow is fully collected.
+     *
+     * @param S the type of elements in the source flow
+     * @param elements the source elements to transform and add
+     * @param transform a suspending function that converts source elements to queue elements
+     * @return the number of elements whose insertion caused an eviction
+     */
     suspend fun <S> addAll(elements: Flow<S>, transform: suspend (S) -> T): Int
 
     /**

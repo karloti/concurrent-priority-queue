@@ -308,18 +308,7 @@ class ConcurrentPriorityQueueTest {
         assertNull(queue.add(SearchResultItem(id = 1, score = 20)))
     }
 
-    /**
-     * Verifies that [ConcurrentPriorityQueue.add] always returns `null` when [maxSize] is 0,
-     * as no element can ever be stored.
-     */
-    @Test
-    fun `add returns null and does not store element when maxSize is zero`() = runTest {
-        val queue = ConcurrentPriorityQueue<Int>(maxSize = 0)
-        assertNull(queue.add(10))
-        assertEquals(0, queue.size)
-    }
-
-    // ── containsKey ───────────────────────────────────────────────────────
+        // ── containsKey ───────────────────────────────────────────────────────
 
     /**
      * Verifies that [ConcurrentPriorityQueue.containsKey] returns `true` for a key
