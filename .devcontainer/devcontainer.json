@@ -1,6 +1,6 @@
 {
   "name": "KMP Library Environment",
-  "image": "mcr.microsoft.com/devcontainers/java:17",
+  "image": "mcr.microsoft.com/devcontainers/java:25",
   "features": {
     "ghcr.io/devcontainers/features/python:1": {
       "installTools": true
