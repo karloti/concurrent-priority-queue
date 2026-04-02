@@ -71,7 +71,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         val queue = ConcurrentPriorityQueue(
             maxSize = maxQueueCapacity,
             comparator = deterministicComparator,
-            uniqueKeySelector = { it.identifier }
+            keySelector = { it.identifier }
         )
 
         val skipList = ConcurrentSkipListSet(deterministicComparator)
@@ -154,7 +154,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         val queue = ConcurrentPriorityQueue(
             maxSize = maxQueueCapacity,
             comparator = deterministicComparator,
-            uniqueKeySelector = { it.identifier }
+            keySelector = { it.identifier }
         )
 
         val cpqTime = measureTime {
@@ -372,7 +372,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         val queue = ConcurrentPriorityQueue(
             maxSize = maxQueueCapacity,
             comparator = deterministicComparator,
-            uniqueKeySelector = { it.identifier }
+            keySelector = { it.identifier }
         )
 
         // 1. Add batch that fits completely (priorities 20..24)
@@ -476,7 +476,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         val queue = ConcurrentPriorityQueue(
             maxSize = 10,
             comparator = deterministicComparator,
-            uniqueKeySelector = { it.identifier }
+            keySelector = { it.identifier }
         )
 
         // Add initial elements
@@ -666,7 +666,7 @@ class ConcurrentPriorityQueueAdvancedTestJvm {
         val queue = ConcurrentPriorityQueue(
             maxSize = maxQueueCapacity,
             comparator = deterministicComparator,
-            uniqueKeySelector = { it.identifier }
+            keySelector = { it.identifier }
         )
 
         val time = measureTime {

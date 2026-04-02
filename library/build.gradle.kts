@@ -25,7 +25,7 @@ plugins {
 }
 
 group = "io.github.karloti"
-version = "1.3.5"
+version = "1.3.6"
 
 val isCodespace = System.getenv("CODESPACES") == "true"
 val hasAndroidSdk = System.getenv("ANDROID_HOME") != null || File(rootDir, "local.properties").exists()

@@ -91,7 +91,7 @@ class ConcurrentPriorityQueueConcurrencyTest {
         val queue = ConcurrentPriorityQueue<Item, Int>(
             maxSize = maxSize,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         coroutineScope {
@@ -134,7 +134,7 @@ class ConcurrentPriorityQueueConcurrencyTest {
         val queue = ConcurrentPriorityQueue<Item, Int>(
             maxSize = maxSize,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         coroutineScope {
@@ -174,7 +174,7 @@ class ConcurrentPriorityQueueConcurrencyTest {
         val queue = ConcurrentPriorityQueue<Item, Int>(
             maxSize = maxSize,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         coroutineScope {
@@ -224,7 +224,7 @@ class ConcurrentPriorityQueueConcurrencyTest {
         val queue = ConcurrentPriorityQueue<Item, Int>(
             maxSize = maxSize,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         var pollCount = 0
@@ -281,7 +281,7 @@ class ConcurrentPriorityQueueConcurrencyTest {
         val queue = ConcurrentPriorityQueue<Item, Int>(
             maxSize = maxSize,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         coroutineScope {
@@ -331,7 +331,7 @@ class ConcurrentPriorityQueueConcurrencyTest {
         val queue = ConcurrentPriorityQueue<Item, Int>(
             maxSize = maxSize,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         coroutineScope {
@@ -378,7 +378,7 @@ class ConcurrentPriorityQueueConcurrencyTest {
         val queue = ConcurrentPriorityQueue<Item, Int>(
             maxSize = maxSize,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         coroutineScope {
@@ -442,7 +442,7 @@ class ConcurrentPriorityQueueConcurrencyTest {
         val queue = ConcurrentPriorityQueue<Item, Int>(
             maxSize = maxSize,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         coroutineScope {
@@ -492,7 +492,7 @@ class ConcurrentPriorityQueueConcurrencyTest {
         val queue = ConcurrentPriorityQueue<Item, Int>(
             maxSize = maxSize,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         coroutineScope {
@@ -584,7 +584,7 @@ class ConcurrentPriorityQueueConcurrencyTest {
         val queue = ConcurrentPriorityQueue<Item, Int>(
             maxSize = maxSize,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         // Pre-fill

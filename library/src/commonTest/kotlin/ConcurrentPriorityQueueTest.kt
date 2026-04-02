@@ -57,7 +57,7 @@ class ConcurrentPriorityQueueTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 3,
             comparator = compareByDescending { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         queue.add(SearchResultItem(id = 1, score = 5))
@@ -92,7 +92,7 @@ class ConcurrentPriorityQueueTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 2,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         queue.add(SearchResultItem(id = 1, score = 50))
@@ -116,7 +116,7 @@ class ConcurrentPriorityQueueTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 10,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         val jobs = (1..100).map { i ->
@@ -196,7 +196,7 @@ class ConcurrentPriorityQueueTest {
         val queue = ConcurrentPriorityQueue<ComparableItem, Int>(
             maxSize = 3,
             comparator = reverseOrder(),
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         queue.add(ComparableItem(id = 1, score = 10))
@@ -218,7 +218,7 @@ class ConcurrentPriorityQueueTest {
     fun `test factory with full control applies default max size`() = runTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
 
         (1..6).forEach { queue.add(SearchResultItem(id = it, score = it * 10)) }
@@ -286,7 +286,7 @@ class ConcurrentPriorityQueueTest {
      */
     @Test
     fun `add returns null when element is rejected due to lower priority`() = runTest {
-        val queue = ConcurrentPriorityQueue<Int>(maxSize = 2,reverseOrder())
+        val queue = ConcurrentPriorityQueue<Int>(maxSize = 2, reverseOrder())
         queue.add(20)
         queue.add(30)
         // 5 is smaller than the lowest (20) in a descending queue → rejected.
@@ -302,13 +302,13 @@ class ConcurrentPriorityQueueTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 3,
             comparator = compareByDescending { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
         queue.add(SearchResultItem(id = 1, score = 10))
         assertNull(queue.add(SearchResultItem(id = 1, score = 20)))
     }
 
-        // ── containsKey ───────────────────────────────────────────────────────
+    // ── containsKey ───────────────────────────────────────────────────────
 
     /**
      * Verifies that [ConcurrentPriorityQueue.containsKey] returns `true` for a key
@@ -319,7 +319,7 @@ class ConcurrentPriorityQueueTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 3,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
         queue.add(SearchResultItem(id = 42, score = 10))
         assertTrue(queue.containsKey(42))
@@ -334,7 +334,7 @@ class ConcurrentPriorityQueueTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 3,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
         assertFalse(queue.containsKey(99))
     }
@@ -373,7 +373,7 @@ class ConcurrentPriorityQueueTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 3,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
         val item = SearchResultItem(id = 5, score = 100)
         queue.add(item)
@@ -388,7 +388,7 @@ class ConcurrentPriorityQueueTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 3,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
         assertNull(queue[5])
     }
@@ -475,7 +475,7 @@ class ConcurrentPriorityQueueTest {
      */
     @Test
     fun `poll drains queue in priority order`() = runTest {
-        val queue = ConcurrentPriorityQueue<Int>(maxSize = 5,reverseOrder())
+        val queue = ConcurrentPriorityQueue<Int>(maxSize = 5, reverseOrder())
         listOf(30, 10, 50, 20, 40).forEach { queue.add(it) }
         val drained = generateSequence { queue.poll() }.toList()
         assertEquals(listOf(50, 40, 30, 20, 10), drained)
@@ -493,7 +493,7 @@ class ConcurrentPriorityQueueTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 3,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
         )
         queue.add(SearchResultItem(id = 7, score = 10))
         assertTrue(queue.removeByKey(7))
@@ -509,7 +509,12 @@ class ConcurrentPriorityQueueTest {
         val queue = ConcurrentPriorityQueue<SearchResultItem, Int>(
             maxSize = 3,
             comparator = compareBy { it.score },
-            uniqueKeySelector = { it.id }
+            keySelector = { it.id }
+        )
+        val queue2 = ConcurrentPriorityQueue<Int>(
+            maxSize = 3,
+//            comparator = compareBy { it },
+//            keySelector = { it }
         )
         assertFalse(queue.removeByKey(99))
     }
@@ -546,7 +551,7 @@ class ConcurrentPriorityQueueTest {
      */
     @Test
     fun `removeIf removes all matching elements and returns their count`() = runTest {
-        val queue = ConcurrentPriorityQueue<Int>(maxSize = 5,comparator = reverseOrder())
+        val queue = ConcurrentPriorityQueue<Int>(maxSize = 5, comparator = reverseOrder())
         listOf(10, 20, 30, 40, 50).forEach { queue.add(it) }
         // Descending order: [50, 40, 30, 20, 10]. Remove 40 and 50.
         assertEquals(2, queue.removeIf { it > 30 })
@@ -674,7 +679,7 @@ class ConcurrentPriorityQueueTest {
      */
     @Test
     fun `addAll Sequence respects capacity and retains highest priority elements`() = runTest {
-        val queue = ConcurrentPriorityQueue<Int>(maxSize = 3,reverseOrder())
+        val queue = ConcurrentPriorityQueue<Int>(maxSize = 3, reverseOrder())
         // generateSequence produces 1, 2, 3, 4, 5
         queue.addAll(generateSequence(1) { if (it < 5) it + 1 else null })
         assertEquals(3, queue.size)

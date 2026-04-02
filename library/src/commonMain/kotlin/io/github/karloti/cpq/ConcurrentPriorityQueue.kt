@@ -28,8 +28,7 @@ import kotlinx.coroutines.flow.*
 import kotlin.concurrent.atomics.AtomicInt
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.concurrent.atomics.incrementAndFetch
-import kotlin.reflect.KType
-import kotlin.reflect.typeOf
+import kotlin.jvm.JvmName
 
 /**
  * A concurrent, lock-free, bounded priority queue for Kotlin Multiplatform.
@@ -61,7 +60,7 @@ import kotlin.reflect.typeOf
  * val queue = ConcurrentPriorityQueue<Task, String>(
  *     maxSize = 10,
  *     comparator = compareBy { it.priority },  // Lower priority value = higher priority (min-heap style)
- *     uniqueKeySelector = { it.id }
+ *     keySelector = { it.id }
  * )
  *
  * queue.add(Task("A", 5))
@@ -71,30 +70,22 @@ import kotlin.reflect.typeOf
  * println(queue.first())  // Task(id=B, priority=1)
  * ```
  *
- * @param T The type of elements held in the queue.
- * @param K The type of the unique identity key for deduplication.
  * @property maxSize Maximum queue capacity. Elements beyond this are evicted. Must be > 0.
- * @param typeT Reflection type of elements.
- * @param typeK Reflection type of keys.
  * @property comparator Defines priority order. The first element in sorted order has the highest priority.
  * @property keySelector Extracts a unique identity key from an element for deduplication.
  *
  * @see TreapPriorityList The underlying persistent treap implementation.
  * @see StateFlow For reactive state observation.
  */
-class ConcurrentPriorityQueue<T, K> @PublishedApi internal constructor(
+class ConcurrentPriorityQueue<T, K>(
+    private val comparator: Comparator<T>,
     private val maxSize: Int = 5,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
-    private val typeT: KType,
-    private val typeK: KType,
-    private val comparator: Comparator<T>,
     private val keySelector: (T) -> K,
 ) : BoundedPriorityQueue<T, K> {
 
     init {
         require(maxSize > 0) { "maxSize must be positive" }
-        require(typeT.classifier != null) { "Type T must be a concrete type" }
-        require(typeK.classifier != null) { "Type K must be a concrete type" }
     }
 
     /**
@@ -581,8 +572,7 @@ class ConcurrentPriorityQueue<T, K> @PublishedApi internal constructor(
     fun builder(): ConcurrentPriorityQueueBuilder<T, K> {
         return ConcurrentPriorityQueueBuilderImpl(
             maxSize = maxSize,
-            typeT = typeT,
-            typeK = typeK,
+            dispatcher = dispatcher,
             comparator = comparator,
             keySelector = keySelector,
             initial = queueState.value
@@ -608,92 +598,28 @@ class ConcurrentPriorityQueue<T, K> @PublishedApi internal constructor(
     companion object {
         private const val WORKER_BATCH_SIZE = 512
 
-        /**
-         * Creates a queue for [Comparable] types with a custom identity key.
-         *
-         * Uses **ascending order** by default (lower values = higher priority).
-         *
-         * ## Example
-         *
-         * ```kotlin
-         * data class Task(val id: String, val deadline: Long) : Comparable<Task> {
-         *     override fun compareTo(other: Task) = deadline.compareTo(other.deadline)
-         * }
-         *
-         * // Tasks with earlier deadlines have higher priority
-         * val scheduler = ConcurrentPriorityQueue<Task, String>(maxSize = 10) { it.id }
-         * ```
-         *
-         * @param T Element type (must implement [Comparable]).
-         * @param K Key type for deduplication.
-         * @param maxSize Maximum queue capacity. Defaults to 5.
-         * @param uniqueKeySelector Function to extract unique key from element.
-         * @return A new [ConcurrentPriorityQueue] instance.
-         */
-        inline operator fun <reified T : Comparable<T>, reified K> invoke(
-            maxSize: Int = 5,
-            noinline uniqueKeySelector: (T) -> K
-        ): ConcurrentPriorityQueue<T, K> {
-            return ConcurrentPriorityQueue(
-                maxSize = maxSize,
-                typeT = typeOf<T>(),
-                typeK = typeOf<K>(),
-                comparator = compareBy { it },
-                keySelector = uniqueKeySelector
-            )
-        }
-
-        /**
+               /**
          * Creates a queue with a custom comparator and identity key.
          *
          * @param T Element type.
          * @param K Key type for deduplication.
          * @param maxSize Maximum queue capacity. Defaults to 5.
          * @param comparator Defines priority order.
-         * @param uniqueKeySelector Function to extract unique key from element.
+         * @param keySelector Function to extract unique key from element.
          * @return A new [ConcurrentPriorityQueue] instance.
          */
         inline operator fun <reified T, reified K> invoke(
-            maxSize: Int = 5,
             comparator: Comparator<T>,
-            noinline uniqueKeySelector: (T) -> K
+            maxSize: Int = 5,
+            dispatcher: CoroutineDispatcher = Dispatchers.Default,
+            noinline keySelector: (T) -> K
         ): ConcurrentPriorityQueue<T, K> {
             return ConcurrentPriorityQueue(
-                maxSize = maxSize,
-                typeT = typeOf<T>(),
-                typeK = typeOf<K>(),
                 comparator = comparator,
-                keySelector = uniqueKeySelector
-            )
-        }
-
-        /**
-         * Creates a queue with a custom comparator where elements are their own keys.
-         *
-         * Use this when elements don't need separate identity keys.
-         *
-         * ## Example
-         *
-         * ```kotlin
-         * // Max-heap of strings by length (longer strings first)
-         * val byLength = ConcurrentPriorityQueue<String>(maxSize = 5, compareByDescending { it.length })
-         * ```
-         *
-         * @param T Element type (also used as key type).
-         * @param maxSize Maximum queue capacity. Defaults to 5.
-         * @param comparator Comparator defining priority order.
-         * @return A new [ConcurrentPriorityQueue] instance.
-         */
-        inline operator fun <reified T> invoke(
-            maxSize: Int = 5,
-            comparator: Comparator<T>
-        ): ConcurrentPriorityQueue<T, T> {
-            return ConcurrentPriorityQueue(
                 maxSize = maxSize,
-                typeT = typeOf<T>(),
-                typeK = typeOf<T>(),
-                comparator = comparator
-            ) { it }
+                dispatcher = dispatcher,
+                keySelector = keySelector
+            )
         }
 
         /**
@@ -714,15 +640,19 @@ class ConcurrentPriorityQueue<T, K> @PublishedApi internal constructor(
          * @param maxSize Maximum queue capacity. Defaults to 5.
          * @return A new [ConcurrentPriorityQueue] instance.
          */
+        @JvmName("invokeComparable")
         inline operator fun <reified T : Comparable<T>> invoke(
             maxSize: Int = 5,
+            comparator: Comparator<T> = compareBy { it },
+            dispatcher: CoroutineDispatcher = Dispatchers.Default,
+            noinline keySelector: (T) -> T = { it }
         ): ConcurrentPriorityQueue<T, T> {
             return ConcurrentPriorityQueue(
+                comparator = comparator,
                 maxSize = maxSize,
-                typeT = typeOf<T>(),
-                typeK = typeOf<T>(),
-                comparator = compareBy { it }
-            ) { it }
+                dispatcher = dispatcher,
+                keySelector = keySelector
+            )
         }
     }
 }
